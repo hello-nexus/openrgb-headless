@@ -1,0 +1,218 @@
+name: Headless build
+
+on:
+  push:
+    branches: [headless, main]
+  pull_request:
+    branches: [headless, main]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt + jom (qmake/jom only — headless build links no Qt libs)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.15.2'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+          modules: ''
+          tools: 'tools_ifw tools_qtcreator,qt.tools.qtcreator'
+          cache: true
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install jom (parallel nmake replacement)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://download.qt.io/official_releases/jom/jom_1_1_4.zip -OutFile jom.zip
+          Expand-Archive -Path jom.zip -DestinationPath jom
+          Add-Content -Path $env:GITHUB_PATH -Value "$pwd\jom"
+
+      - name: qmake
+        shell: cmd
+        run: |
+          qmake OpenRGB.pro CONFIG+=release
+
+      - name: jom (parallel build)
+        shell: cmd
+        run: |
+          jom -j %NUMBER_OF_PROCESSORS%
+
+      - name: Inspect output and stage bundle
+        shell: pwsh
+        run: |
+          if (Test-Path "release\OpenRGB.exe") {
+            $info = Get-Item "release\OpenRGB.exe"
+            Write-Host "release\OpenRGB.exe size: $([math]::Round($info.Length / 1MB, 2)) MiB"
+            Move-Item release\OpenRGB.exe release\OpenRGB-headless.exe
+          } elseif (Test-Path "OpenRGB.exe") {
+            $info = Get-Item "OpenRGB.exe"
+            Write-Host "OpenRGB.exe size: $([math]::Round($info.Length / 1MB, 2)) MiB"
+            Move-Item OpenRGB.exe OpenRGB-headless.exe
+          } else {
+            Write-Error "Build artifact missing!"
+            Get-ChildItem -Recurse -Filter "*.exe"
+            exit 1
+          }
+
+          # Stage the .exe + ALL runtime DLLs that qmake dropped next to it,
+          # plus the PawnIO chipset modules (Smbus*.bin / LpcIO.bin) that
+          # OpenRGB.pro copies into the build directory. PawnIOLib loads these
+          # at runtime to probe SMBus — without them, RGB DRAM is invisible.
+          New-Item -ItemType Directory -Force -Path bundle
+          Copy-Item release\OpenRGB-headless.exe bundle\
+          Copy-Item release\*.dll bundle\ -ErrorAction SilentlyContinue
+          Copy-Item release\*.bin bundle\ -ErrorAction SilentlyContinue
+          Write-Host "--- staged DLLs ---"
+          Get-ChildItem bundle\*.dll | Format-Table Name, Length
+          Write-Host "--- staged PawnIO modules ---"
+          Get-ChildItem bundle\*.bin | Format-Table Name, Length
+          # Fail fast if the SMBus modules went missing — these are required
+          # for RGB DRAM detection and the failure mode is silent at runtime.
+          $required = @('SmbusI801.bin', 'SmbusPIIX4.bin', 'SmbusNCT6793.bin', 'LpcIO.bin')
+          $missing = $required | Where-Object { -not (Test-Path "bundle\$_") }
+          if ($missing) {
+            Write-Error "PawnIO modules missing from bundle: $($missing -join ', '). Check OpenRGB.pro copydata step."
+            exit 1
+          }
+          # Re-bundle the LICENSE so GPL §3 redistribution requirements are met
+          Copy-Item LICENSE bundle\LICENSE-OpenRGB.txt
+          # Tag the build with the source URL
+          Set-Content -Path bundle\README.txt -Value @"
+          OpenRGB headless build
+          ----------------------
+          Source: https://github.com/integretti/openrgb-headless
+          License: GPL-2.0-or-later (see LICENSE-OpenRGB.txt)
+          "@
+          Get-ChildItem bundle | Format-Table Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenRGB-headless-windows-x64
+          path: bundle/**
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qtbase5-dev qttools5-dev qttools5-dev-tools \
+            libusb-1.0-0-dev libhidapi-dev libmbedtls-dev \
+            pkg-config build-essential
+
+      - name: qmake
+        run: |
+          qmake OpenRGB.pro CONFIG+=release
+
+      - name: make
+        run: |
+          make -j$(nproc)
+
+      - name: Inspect output and stage bundle
+        run: |
+          if [ -f openrgb ]; then
+            ls -lh openrgb
+            mv openrgb OpenRGB-headless
+            file OpenRGB-headless
+            ldd OpenRGB-headless || true
+            echo "--- Qt libs in dependency tree ---"
+            ldd OpenRGB-headless | grep -i 'qt\|Qt' || echo "(none — Qt successfully removed)"
+          else
+            echo "Build artifact missing!"
+            find . -maxdepth 2 -name 'openrgb*' -o -name 'OpenRGB*'
+            exit 1
+          fi
+
+          mkdir -p bundle
+          cp OpenRGB-headless bundle/
+          cp LICENSE bundle/LICENSE-OpenRGB.txt
+          cat > bundle/README.txt <<'EOF'
+          OpenRGB headless build
+          ----------------------
+          Source: https://github.com/integretti/openrgb-headless
+          License: GPL-2.0-or-later (see LICENSE-OpenRGB.txt)
+          EOF
+          ls -lh bundle/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenRGB-headless-linux-x64
+          path: bundle/**
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (Homebrew)
+        run: |
+          brew update
+          # mbedtls@3 matches the versioned formula OpenRGB.pro references
+          brew install qt@5 libusb hidapi mbedtls@3 pkg-config
+          # qt@5 is keg-only: expose qmake and its pkg-config files
+          QT_PREFIX=$(brew --prefix qt@5)
+          echo "$QT_PREFIX/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$QT_PREFIX/lib/pkgconfig:$(brew --prefix mbedtls@3)/lib/pkgconfig:$(brew --prefix libusb)/lib/pkgconfig:$(brew --prefix hidapi)/lib/pkgconfig" >> $GITHUB_ENV
+
+      - name: qmake
+        run: |
+          qmake -v
+          qmake OpenRGB.pro CONFIG+=release
+
+      - name: make
+        run: |
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Inspect output and stage bundle
+        run: |
+          # .pro sets `CONFIG -= app_bundle` for mac, so output is a plain binary
+          if [ -f openrgb ]; then
+            BIN=openrgb
+          elif [ -f OpenRGB ]; then
+            BIN=OpenRGB
+          else
+            echo "Build artifact missing!"
+            find . -maxdepth 2 -name 'openrgb*' -o -name 'OpenRGB*'
+            exit 1
+          fi
+          ls -lh "$BIN"
+          file "$BIN"
+          mv "$BIN" OpenRGB-headless
+          echo "--- linked dylibs ---"
+          otool -L OpenRGB-headless
+          echo "--- Qt libs in dependency tree ---"
+          otool -L OpenRGB-headless | grep -i 'qt' || echo "(none - Qt successfully removed)"
+
+          mkdir -p bundle
+          cp OpenRGB-headless bundle/
+          cp LICENSE bundle/LICENSE-OpenRGB.txt
+          cat > bundle/README.txt <<'EOF'
+          OpenRGB headless build
+          ----------------------
+          Source: https://github.com/integretti/openrgb-headless
+          License: GPL-2.0-or-later (see LICENSE-OpenRGB.txt)
+          EOF
+          ls -lh bundle/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenRGB-headless-macos-arm64
+          path: bundle/**
+          if-no-files-found: error
