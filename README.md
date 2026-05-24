@@ -6,7 +6,7 @@ SDK server. The result is a small, GUI-less binary that exposes the OpenRGB SDK 
 its standard TCP port (default `6742`) and nothing else: no GUI, no plugin loader,
 no system tray, no installer-bundled `.dll`s for desktop frameworks.
 
-The 183 device controllers and the SDK protocol are unchanged from upstream.
+The device controllers and the SDK protocol are unchanged from upstream.
 
 | Build | Size |
 |---|---|
@@ -51,7 +51,7 @@ Everything that exists only to drive a graphical interface:
 
 Everything that's not GUI-bound:
 
-- All ~183 device controllers under `Controllers/`
+- Every device controller under `Controllers/`
 - The full OpenRGB SDK TCP protocol (`NetworkServer.cpp`, `NetworkProtocol.cpp`)
 - All hardware detectors (`i2c_smbus/`, `hidapi_wrapper/`, `serial_port/`,
   `interop/`, `SPDAccessor/`)
