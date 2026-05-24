@@ -18,6 +18,7 @@
 
 #include <stdlib.h>
 #include <string>
+#include <future>
 #include <hidapi.h>
 #include "cli.h"
 #include "pci_ids/pci_ids.h"
@@ -29,6 +30,7 @@
 #include "NetworkServer.h"
 #include "filesystem.h"
 #include "StringUtils.h"
+#include "RGBController_Dummy.h"
 
 /*---------------------------------------------------------*\
 | Translation Strings                                       |
@@ -1052,6 +1054,78 @@ void ResourceManager::DisableDetection()
     detection_enabled = false;
 }
 
+static const unsigned int DETECTOR_TIMEOUT_MS = 5000;
+
+/*-------------------------------------------------------------------------*\
+| When a detector fails (timeout or exception) we still want the client to  |
+| know a device was found but could not be driven. We register an empty     |
+| RGBController_Dummy with the detector's name and nothing else - no zones, |
+| no modes, no LEDs, no segments. The SDK ships it to the client like any   |
+| other controller; the client uses "zero zones / zero LEDs" as the signal  |
+| that this entry is a detection failure, and informs the user the device   |
+| was seen but is not available.                                            |
+|                                                                           |
+| Memory: RegisterRGBController takes ownership; the Cleanup() path below   |
+| deletes every entry in rgb_controllers_hw between detection runs, so the  |
+| placeholder is freed with the rest and does not leak across rescans.      |
+\*-------------------------------------------------------------------------*/
+static void RegisterDetectionFailurePlaceholder(const char* detector_name)
+{
+    RGBController_Dummy* placeholder = new RGBController_Dummy();
+    placeholder->name    = detector_name;
+    placeholder->type    = DEVICE_TYPE_UNKNOWN;
+    placeholder->version = "";
+    placeholder->serial  = "";
+    placeholder->location = "";
+    ResourceManager::get()->RegisterRGBController(placeholder);
+}
+
+static bool RunDetectorWithTimeout(
+    std::function<void()>   fn,
+    const char*             name,
+    unsigned int            timeout_ms)
+{
+    auto done   = std::make_shared<std::promise<bool>>();
+    auto future = done->get_future();
+
+    std::thread worker([done, fn, name_copy = std::string(name)]()
+    {
+        try
+        {
+            fn();
+            done->set_value(true);
+        }
+        catch(const std::exception& e)
+        {
+            LOG_ERROR("[%s] detector threw: %s", name_copy.c_str(), e.what());
+            done->set_value(false);
+        }
+        catch(...)
+        {
+            LOG_ERROR("[%s] detector threw unknown exception", name_copy.c_str());
+            done->set_value(false);
+        }
+    });
+
+    if(future.wait_for(std::chrono::milliseconds(timeout_ms)) == std::future_status::ready)
+    {
+        worker.join();
+        bool ok = future.get();
+        if(!ok)
+        {
+            RegisterDetectionFailurePlaceholder(name);
+        }
+        return ok;
+    }
+    else
+    {
+        LOG_ERROR("[%s] detector timed out after %u ms, skipping device", name, timeout_ms);
+        worker.detach();
+        RegisterDetectionFailurePlaceholder(name);
+        return false;
+    }
+}
+
 void ResourceManager::DetectDevicesCoroutine()
 {
     DetectDeviceMutex.lock();
@@ -1212,7 +1286,10 @@ void ResourceManager::DetectDevicesCoroutine()
         {
             DetectionProgressChanged();
 
-            i2c_device_detectors[i2c_detector_idx](busses);
+            RunDetectorWithTimeout(
+                [&]() { i2c_device_detectors[i2c_detector_idx](busses); },
+                detection_string,
+                DETECTOR_TIMEOUT_MS);
         }
 
         /*-------------------------------------------------*\
@@ -1284,8 +1361,14 @@ void ResourceManager::DetectDevicesCoroutine()
                     {
                         DetectionProgressChanged();
 
-                        std::vector<SPDWrapper*> matching_slots = slots_with_jedec(slots, i2c_dimm_device_detectors[i2c_detector_idx].jedec_id);
-                        i2c_dimm_device_detectors[i2c_detector_idx].function(busses[bus], matching_slots, i2c_dimm_device_detectors[i2c_detector_idx].name);
+                        RunDetectorWithTimeout(
+                            [&]()
+                            {
+                                std::vector<SPDWrapper*> matching_slots = slots_with_jedec(slots, i2c_dimm_device_detectors[i2c_detector_idx].jedec_id);
+                                i2c_dimm_device_detectors[i2c_detector_idx].function(busses[bus], matching_slots, i2c_dimm_device_detectors[i2c_detector_idx].name);
+                            },
+                            detection_string,
+                            DETECTOR_TIMEOUT_MS);
                     }
 
                     LOG_TRACE("[%s] detection end", detection_string);
@@ -1332,7 +1415,10 @@ void ResourceManager::DetectDevicesCoroutine()
                    busses[bus]->pci_subsystem_vendor == i2c_pci_device_detectors[i2c_detector_idx].subven_id &&
                    busses[bus]->pci_subsystem_device == i2c_pci_device_detectors[i2c_detector_idx].subdev_id)
                 {
-                    i2c_pci_device_detectors[i2c_detector_idx].function(busses[bus], i2c_pci_device_detectors[i2c_detector_idx].i2c_addr, i2c_pci_device_detectors[i2c_detector_idx].name);
+                    RunDetectorWithTimeout(
+                        [&]() { i2c_pci_device_detectors[i2c_detector_idx].function(busses[bus], i2c_pci_device_detectors[i2c_detector_idx].i2c_addr, i2c_pci_device_detectors[i2c_detector_idx].name); },
+                        detection_string,
+                        DETECTOR_TIMEOUT_MS);
                 }
             }
         }
@@ -1397,7 +1483,10 @@ void ResourceManager::DetectDevicesCoroutine()
                     {
                         DetectionProgressChanged();
 
-                        detector.function(current_hid_device, hid_device_detectors[hid_detector_idx].name);
+                        RunDetectorWithTimeout(
+                            [&]() { detector.function(current_hid_device, hid_device_detectors[hid_detector_idx].name); },
+                            detection_string,
+                            DETECTOR_TIMEOUT_MS);
 
                         LOG_TRACE("[%s] detection end", detection_string);
                     }
@@ -1455,7 +1544,10 @@ void ResourceManager::DetectDevicesCoroutine()
                     {
                         DetectionProgressChanged();
 
-                        detector.function(current_hid_device, hid_device_detectors[hid_detector_idx].name);
+                        RunDetectorWithTimeout(
+                            [&]() { detector.function(current_hid_device, hid_device_detectors[hid_detector_idx].name); },
+                            detection_string,
+                            DETECTOR_TIMEOUT_MS);
                     }
                 }
             }
@@ -1488,7 +1580,10 @@ void ResourceManager::DetectDevicesCoroutine()
                     {
                         DetectionProgressChanged();
 
-                        detector.function(default_wrapper, current_hid_device, hid_wrapped_device_detectors[hid_detector_idx].name);
+                        RunDetectorWithTimeout(
+                            [&]() { detector.function(default_wrapper, current_hid_device, hid_wrapped_device_detectors[hid_detector_idx].name); },
+                            detection_string,
+                            DETECTOR_TIMEOUT_MS);
                     }
                 }
             }
@@ -1602,7 +1697,10 @@ void ResourceManager::DetectDevicesCoroutine()
                     {
                         DetectionProgressChanged();
 
-                        detector.function(wrapper, current_hid_device, detector.name);
+                        RunDetectorWithTimeout(
+                            [&]() { detector.function(wrapper, current_hid_device, detector.name); },
+                            detection_string,
+                            DETECTOR_TIMEOUT_MS);
                     }
                 }
             }
@@ -1656,7 +1754,10 @@ void ResourceManager::DetectDevicesCoroutine()
         {
             DetectionProgressChanged();
 
-            device_detectors[detector_idx]();
+            RunDetectorWithTimeout(
+                [&]() { device_detectors[detector_idx](); },
+                detection_string,
+                DETECTOR_TIMEOUT_MS);
         }
 
         LOG_TRACE("[%s] detection end", detection_string);
