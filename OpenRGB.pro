@@ -5,21 +5,20 @@
 #-----------------------------------------------------------------------------------------------#
 
 #-----------------------------------------------------------------------------------------------#
-# Qt Configuration                                                                              #
+# Headless build — this fork strips Qt entirely. We keep the qmake build system because it      #
+# remains structurally close to upstream, which simplifies merging future upstream updates     #
+# (controllers, network protocol, hardware detectors). The Qt5 install is required only as a   #
+# build-time tool (qmake itself); the produced binary links zero Qt libraries.                 #
 #-----------------------------------------------------------------------------------------------#
-QT +=                                                                                           \
-    core                                                                                        \
-    gui                                                                                         \
+QT          =
+CONFIG     += c++17 silent
+DEFINES    += OPENRGB_HEADLESS
 
-#-----------------------------------------------------------------------------------------------#
-# Set compiler to use C++17 to make std::filesystem available                                   #
-#-----------------------------------------------------------------------------------------------#
-CONFIG +=   c++17                                                                               \
-            lrelease                                                                            \
-            embed_translations                                                                  \
-            silent                                                                              \
-
-greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
+# Console subsystem on Windows so the binary has stdout/stderr (instead of the default Qt
+# GUI subsystem). Also link the Win32 libraries that the Qt config used to drag in
+# transitively (CommandLineToArgvW, SHGetFolderPathA, registry, sockets, ws2_32 etc.)
+win32: CONFIG += console
+win32: LIBS   += -lshell32 -ladvapi32 -luser32 -lole32 -lws2_32 -liphlpapi -lsetupapi -lshlwapi
 
 #-----------------------------------------------------------------------------------------------#
 # Application Configuration                                                                     #
@@ -94,16 +93,8 @@ DEFINES +=                                                                      
 #-----------------------------------------------------------------------------------------------#
 # OpenRGB dynamically added sources                                                             #
 #-----------------------------------------------------------------------------------------------#
-FORMS += $$files("qt/*.ui", true)
-
-for(iter, FORMS) {
-    GUI_INCLUDES += $$dirname(iter)
-}
-GUI_INCLUDES        = $$unique(GUI_INCLUDES)
-
-GUI_H               = $$files("qt/*.h", true)
-GUI_CPP             = $$files("qt/*.cpp", true)
-
+# Headless fork: the qt/ directory has been deleted, so the FORMS/GUI_H/GUI_CPP                #
+# blobs from upstream are gone. Only the controller globs remain.                              #
 CONTROLLER_H        = $$files("Controllers/*.h", true)
 CONTROLLER_CPP      = $$files("Controllers/*.cpp", true)
 
@@ -141,8 +132,6 @@ CONTROLLER_CPP         -= $$CONTROLLER_CPP_MACOS
 #-----------------------------------------------------------------------------------------------#
 INCLUDEPATH +=                                                                                  \
     $$CONTROLLER_INCLUDES                                                                       \
-    $$GUI_INCLUDES                                                                              \
-    dependencies/ColorWheel                                                                     \
     dependencies/CRCpp/                                                                         \
     dependencies/hueplusplus-1.2.0/include                                                      \
     dependencies/hueplusplus-1.2.0/include/hueplusplus                                          \
@@ -162,23 +151,19 @@ INCLUDEPATH +=                                                                  
     AutoStart/                                                                                  \
     KeyboardLayoutManager/                                                                      \
     RGBController/                                                                              \
-    qt/                                                                                         \
     SPDAccessor/                                                                                \
-    SuspendResume/                                                                              \
-    dependencies/stb/
+    dependencies/stb/                                                                           \
+    .
 
 HEADERS +=                                                                                      \
-    $$GUI_H                                                                                     \
     $$CONTROLLER_H                                                                              \
     Colors.h                                                                                    \
-    dependencies/ColorWheel/ColorWheel.h                                                        \
     dependencies/json/nlohmann/json.hpp                                                         \
+    hsv.h                                                                                       \
     LogManager.h                                                                                \
     NetworkClient.h                                                                             \
     NetworkProtocol.h                                                                           \
     NetworkServer.h                                                                             \
-    OpenRGBPluginInterface.h                                                                    \
-    PluginManager.h                                                                             \
     ProfileManager.h                                                                            \
     ResourceManager.h                                                                           \
     ResourceManagerInterface.h                                                                  \
@@ -200,7 +185,6 @@ HEADERS +=                                                                      
     serial_port/serial_port.h                                                                   \
     super_io/super_io.h                                                                         \
     StringUtils.h                                                                               \
-    SuspendResume/SuspendResume.h                                                               \
     AutoStart/AutoStart.h                                                                       \
     KeyboardLayoutManager/KeyboardLayoutManager.h                                               \
     RGBController/RGBController.h                                                               \
@@ -210,9 +194,8 @@ HEADERS +=                                                                      
     startup/startup.h                                                                           \
 
 SOURCES +=                                                                                      \
-    $$GUI_CPP                                                                                   \
     $$CONTROLLER_CPP                                                                            \
-    dependencies/ColorWheel/ColorWheel.cpp                                                      \
+    hsv.cpp                                                                                     \
     dependencies/hueplusplus-1.2.0/src/Action.cpp                                               \
     dependencies/hueplusplus-1.2.0/src/APICache.cpp                                             \
     dependencies/hueplusplus-1.2.0/src/BaseDevice.cpp                                           \
@@ -249,7 +232,6 @@ SOURCES +=                                                                      
     NetworkClient.cpp                                                                           \
     NetworkProtocol.cpp                                                                         \
     NetworkServer.cpp                                                                           \
-    PluginManager.cpp                                                                           \
     ProfileManager.cpp                                                                          \
     ResourceManager.cpp                                                                         \
     SPDAccessor/DDR4DirectAccessor.cpp                                                          \
@@ -273,9 +255,6 @@ SOURCES +=                                                                      
     RGBController/RGBControllerKeyNames.cpp                                                     \
     RGBController/RGBController_Network.cpp                                                     \
 
-RESOURCES +=                                                                                    \
-    qt/resources.qrc                                                                            \
-
 #-----------------------------------------------------------------------------------------------#
 # General configuration to decide if in-tree dependencies are used or not
 #-----------------------------------------------------------------------------------------------#
@@ -295,32 +274,7 @@ unix {
     }
 }
 
-#-----------------------------------------------------------------------------------------------#
-# Translations                                                                                  #
-#   NB: Translation files should not be added dynamically due to the process                    #
-#       to add new translations relies on entries here in OpenRGB.pro                           #
-#-----------------------------------------------------------------------------------------------#
-TRANSLATIONS +=                                                                                 \
-    qt/i18n/OpenRGB_be_BY.ts                                                                    \
-    qt/i18n/OpenRGB_de_DE.ts                                                                    \
-    qt/i18n/OpenRGB_el_GR.ts                                                                    \
-    qt/i18n/OpenRGB_en_US.ts                                                                    \
-    qt/i18n/OpenRGB_en_AU.ts                                                                    \
-    qt/i18n/OpenRGB_en_GB.ts                                                                    \
-    qt/i18n/OpenRGB_es_ES.ts                                                                    \
-    qt/i18n/OpenRGB_fr_FR.ts                                                                    \
-    qt/i18n/OpenRGB_hr_HR.ts                                                                    \
-    qt/i18n/OpenRGB_it_IT.ts                                                                    \
-    qt/i18n/OpenRGB_ja_JP.ts                                                                    \
-    qt/i18n/OpenRGB_ko_KR.ts                                                                    \
-    qt/i18n/OpenRGB_ms_MY.ts                                                                    \
-    qt/i18n/OpenRGB_nb_NO.ts                                                                    \
-    qt/i18n/OpenRGB_pl_PL.ts                                                                    \
-    qt/i18n/OpenRGB_pt_BR.ts                                                                    \
-    qt/i18n/OpenRGB_ru_RU.ts                                                                    \
-    qt/i18n/OpenRGB_uk_UA.ts                                                                    \
-    qt/i18n/OpenRGB_zh_CN.ts                                                                    \
-    qt/i18n/OpenRGB_zh_TW.ts                                                                    \
+# Translations are intentionally absent: this fork has no GUI to translate.
 
 #-----------------------------------------------------------------------------------------------#
 # Windows-specific Configuration                                                                #
@@ -345,7 +299,6 @@ win32:SOURCES +=                                                                
     i2c_smbus/Windows/i2c_smbus_nvapi.cpp                                                       \
     scsiapi/scsiapi_windows.c                                                                   \
     serial_port/find_usb_serial_port_win.cpp                                                    \
-    SuspendResume/SuspendResume_Windows.cpp                                                     \
     wmi/wmi.cpp                                                                                 \
     AutoStart/AutoStart-Windows.cpp                                                             \
     startup/main_Windows.cpp                                                                    \
@@ -363,7 +316,6 @@ win32:HEADERS +=                                                                
     i2c_smbus/Windows/i2c_smbus_pawnio.h                                                        \
     wmi/wmi.h                                                                                   \
     AutoStart/AutoStart-Windows.h                                                               \
-    SuspendResume/SuspendResume_Windows.h                                                       \
 
 win32:contains(QMAKE_TARGET.arch, x86_64) {
     win32:SOURCES +=                                                                            \
@@ -402,8 +354,7 @@ win32:DEFINES +=                                                                
     _WINSOCK_DEPRECATED_NO_WARNINGS                                                             \
     WIN32_LEAN_AND_MEAN                                                                         \
 
-win32:RC_ICONS +=                                                                               \
-    qt/OpenRGB.ico
+# RC_ICONS removed: headless build has no GUI window so no .exe icon is needed.
 
 win32:DISTFILES += \
     dependencies/PawnIO/modules/SmbusPIIX4.bin                                                  \
@@ -473,7 +424,6 @@ contains(QMAKE_PLATFORM, linux) {
     AutoStart/AutoStart-Linux.h                                                                 \
     SPDAccessor/EE1004Accessor_Linux.h                                                          \
     SPDAccessor/SPD5118Accessor_Linux.h                                                         \
-    SuspendResume/SuspendResume_Linux_FreeBSD.h                                                 \
     super_io/super_io.h                                                                         \
 
     INCLUDEPATH +=                                                                              \
@@ -493,7 +443,8 @@ contains(QMAKE_PLATFORM, linux) {
          LIBS += -lstdc++fs
     }
 
-    QT += dbus
+    # DBus removed: the QtDBus suspend/resume listener was the only consumer.
+    # The host that embeds the headless server detects OS power events itself.
 
     QMAKE_CXXFLAGS += -Wno-implicit-fallthrough -Wno-psabi
 
@@ -531,7 +482,6 @@ contains(QMAKE_PLATFORM, linux) {
     AutoStart/AutoStart-Linux.cpp                                                               \
     SPDAccessor/EE1004Accessor_Linux.cpp                                                        \
     SPDAccessor/SPD5118Accessor_Linux.cpp                                                       \
-    SuspendResume/SuspendResume_Linux_FreeBSD.cpp                                               \
     startup/main_FreeBSD_Linux_MacOS.cpp                                                        \
     super_io/super_io.cpp                                                                       \
 
@@ -582,17 +532,9 @@ contains(QMAKE_PLATFORM, linux) {
     # Add static files to installation                                                          #
     #-------------------------------------------------------------------------------------------#
     target.path=$$PREFIX/bin/
-    desktop.path=$$PREFIX/share/applications/
-    desktop.files+=qt/org.openrgb.OpenRGB.desktop
-    icon.path=$$PREFIX/share/icons/hicolor/128x128/apps/
-    icon.files+=qt/org.openrgb.OpenRGB.png
-    metainfo.path=$$PREFIX/share/metainfo/
-    metainfo.files+=qt/org.openrgb.OpenRGB.metainfo.xml
-    systemd_service.path=$$PREFIX/lib/systemd/system/
-    systemd_service.files+=qt/openrgb.service
-    tmpfiles.path=$$PREFIX/lib/tmpfiles.d/
-    tmpfiles.files+=qt/openrgb.conf
-    INSTALLS += target desktop icon metainfo udev_rules systemd_service tmpfiles
+    # Headless fork: desktop entry, GUI icon, AppStream metainfo, systemd unit
+    # and tmpfiles install rules removed — they all referenced files under qt/.
+    INSTALLS += target udev_rules
 }
 
 #-----------------------------------------------------------------------------------------------#
@@ -610,7 +552,6 @@ contains(QMAKE_PLATFORM, freebsd) {
 
     HEADERS +=                                                                                  \
     AutoStart/AutoStart-FreeBSD.h                                                               \
-    SuspendResume/SuspendResume_Linux_FreeBSD.h                                                 \
     super_io/super_io.h                                                                         \
 
     HEADERS -=                                                                                  \
@@ -629,7 +570,7 @@ contains(QMAKE_PLATFORM, freebsd) {
          LIBS += -lstdc++fs
     }
 
-    QT += dbus
+    # DBus removed: the QtDBus suspend/resume listener was the only consumer.
 
     #-------------------------------------------------------------------------------------------#
     # Determine which hidapi to use based on availability                                       #
@@ -659,7 +600,6 @@ contains(QMAKE_PLATFORM, freebsd) {
     dependencies/hueplusplus-1.2.0/src/LinHttpHandler.cpp                                       \
     serial_port/find_usb_serial_port_linux.cpp                                                  \
     AutoStart/AutoStart-FreeBSD.cpp                                                             \
-    SuspendResume/SuspendResume_Linux_FreeBSD.cpp                                               \
     startup/main_FreeBSD_Linux_MacOS.cpp                                                        \
     super_io/super_io.cpp                                                                       \
 
@@ -679,15 +619,11 @@ contains(QMAKE_PLATFORM, freebsd) {
     }
 
     target.path=$$PREFIX/bin/
-    desktop.path=$$PREFIX/share/applications/
-    desktop.files+=qt/org.openrgb.OpenRGB.desktop
-    icon.path=$$PREFIX/share/icons/hicolor/128x128/apps/
-    icon.files+=qt/org.openrgb.OpenRGB.png
-    metainfo.path=$$PREFIX/share/metainfo/
-    metainfo.files+=qt/org.openrgb.OpenRGB.metainfo.xml
     rules.path=$$PREFIX/lib/udev/rules.d/
     rules.files+=60-openrgb.rules
-    INSTALLS += target desktop icon metainfo rules
+    # Headless fork: desktop entry, icon, AppStream metainfo install rules
+    # removed — they all referenced files under qt/.
+    INSTALLS += target rules
 }
 
 unix:!macx:CONFIG(asan) {
@@ -709,6 +645,9 @@ macx {
     CONFIG += link_pkgconfig
     CONFIG += sdk_no_version_check
 
+    # Headless: emit a plain console executable, not a .app bundle.
+    CONFIG -= app_bundle
+
     PKGCONFIG +=                                                                                \
     libusb-1.0                                                                                  \
     hidapi
@@ -721,8 +660,6 @@ macx {
 
     HEADERS +=                                                                                  \
     AutoStart/AutoStart-MacOS.h                                                                 \
-    qt/macutils.h                                                                               \
-    SuspendResume/SuspendResume_MacOS.h                                                         \
 
     HEADERS += $$CONTROLLER_H_MACOS
 
@@ -730,8 +667,6 @@ macx {
     dependencies/hueplusplus-1.2.0/src/LinHttpHandler.cpp                                       \
     serial_port/find_usb_serial_port_macos.cpp                                                  \
     AutoStart/AutoStart-MacOS.cpp                                                               \
-    qt/macutils.mm                                                                              \
-    SuspendResume/SuspendResume_MacOS.cpp                                                       \
     startup/main_FreeBSD_Linux_MacOS.cpp                                                        \
 
     SOURCES += $$CONTROLLER_CPP_MACOS
@@ -746,14 +681,14 @@ macx {
     -lmbedx509                                                                                  \
     -lmbedcrypto                                                                                \
     -lmbedtls                                                                                   \
-    -L$$MBEDTLS_PREFIX/lib
+    -L$$MBEDTLS_PREFIX/lib                                                                      \
+    -framework IOKit                                                                            \
+    -framework CoreFoundation
 
-    ICON = qt/OpenRGB.icns
-
-    info_plist.input = mac/Info.plist.in
-    info_plist.output = $$OUT_PWD/Info.plist
-    QMAKE_SUBSTITUTES += info_plist
-    QMAKE_INFO_PLIST = $$OUT_PWD/Info.plist
+    # ICON, info_plist, QMAKE_INFO_PLIST removed: headless build is a console
+    # tool, not a .app bundle. IOKit + CoreFoundation are required by
+    # dependencies/macUSPCIO/macUSPCIOAccess.h (IOServiceMatching,
+    # kIOMasterPortDefault, etc.).
 }
 
 #-----------------------------------------------------------------------------------------------#

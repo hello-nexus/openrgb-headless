@@ -15,8 +15,6 @@
 #include <windows.h>
 #include <thread>
 
-#include <QApplication>
-
 #include "cli.h"
 #include "startup.h"
 #include "LogManager.h"
