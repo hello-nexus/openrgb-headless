@@ -20,7 +20,7 @@ The device controllers and the SDK protocol are unchanged from upstream.
 Upstream OpenRGB has [an open feature request for a headless mode](https://gitlab.com/CalcProgrammer1/OpenRGB/-/issues/2012)
 that has been pending for years. This fork implements it as the smallest possible
 patch on top of upstream. It exists for embedding OpenRGB inside other services as
-a child process — the host speaks the SDK over loopback TCP and gets full
+a child process - the host speaks the SDK over loopback TCP and gets full
 device-control access without bundling 12+ MiB of Qt runtime DLLs the SDK server
 never actually uses.
 
@@ -32,18 +32,18 @@ work, hardware detector improvements, and SDK protocol fixes. See
 
 Everything that exists only to drive a graphical interface:
 
-- `qt/` — every dialog, page, model, dialog .ui form, theme, font, icon, translation
-- `dependencies/ColorWheel/` — pure `QWidget` colour-picker, only used by the GUI
-- `PluginManager.cpp/h` and `OpenRGBPluginInterface.h` — the GUI plugin loader (uses
+- `qt/` - every dialog, page, model, dialog .ui form, theme, font, icon, translation
+- `dependencies/ColorWheel/` - pure `QWidget` colour-picker, only used by the GUI
+- `PluginManager.cpp/h` and `OpenRGBPluginInterface.h` - the GUI plugin loader (uses
   `QPluginLoader` and the `QWidget` plugin ABI)
-- `SuspendResume/` — every per-platform listener, all of which depended on
+- `SuspendResume/` - every per-platform listener, all of which depended on
   `QAbstractNativeEventFilter` (Windows) or `QDBusConnection` (Linux/FreeBSD).
   The host that embeds the headless server is expected to detect OS power events
   itself and bounce the subprocess on resume.
-- `Documentation/Images/` — GUI screenshots
+- `Documentation/Images/` - GUI screenshots
 - All Linux desktop / icon / AppStream metainfo / systemd / tmpfiles install rules
-- The Windows `.exe` icon (`RC_ICONS`) — headless tools don't need one
-- The macOS `.app` bundle config (Info.plist, .icns) — headless tools aren't bundles
+- The Windows `.exe` icon (`RC_ICONS`) - headless tools don't need one
+- The macOS `.app` bundle config (Info.plist, .icns) - headless tools aren't bundles
 - All translation files (`qt/i18n/*.ts`) and the `lrelease` / `embed_translations`
   qmake configs
 
@@ -55,12 +55,12 @@ Everything that's not GUI-bound:
 - The full OpenRGB SDK TCP protocol (`NetworkServer.cpp`, `NetworkProtocol.cpp`)
 - All hardware detectors (`i2c_smbus/`, `hidapi_wrapper/`, `serial_port/`,
   `interop/`, `SPDAccessor/`)
-- `ResourceManager`, `SettingsManager`, `ProfileManager`, `LogManager` — all
+- `ResourceManager`, `SettingsManager`, `ProfileManager`, `LogManager` - all
   Qt-free in upstream
-- The `cli.cpp` CLI parser — flags that don't make sense headless
+- The `cli.cpp` CLI parser - flags that don't make sense headless
   (`--gui`, `--start-minimized`, `--client`) are accepted but ignored
-- Cross-platform: Windows, Linux, and macOS (arm64) all build and ship binaries from CI
-- The qmake build system — kept as-is so upstream merges remain straightforward
+- Cross-platform: CI builds and ships Windows and Linux binaries; macOS (arm64) builds from source (see Building)
+- The qmake build system - kept as-is so upstream merges remain straightforward
 
 ## License
 
@@ -70,7 +70,7 @@ OpenRGB is licensed under the **GNU General Public License, version 2 or later**
 
 The original upstream copyright belongs to Adam Honse (CalcProgrammer1) and
 contributors. The headless patches are visible in [the diff against upstream
-master](https://github.com/integretti/openrgb-headless/compare/main...headless).
+master](https://github.com/hello-nexus/openrgb-headless/compare/main...headless).
 
 ## Building
 
@@ -116,7 +116,7 @@ otool -L ./openrgb | grep -i qt
 # (should produce no output)
 ```
 
-CI builds for `macos-14` (Apple Silicon / arm64). x86_64 macOS is not
+CI covers Windows and Linux only; the macOS (arm64) binary is built from source with the steps above. x86_64 macOS is not
 currently exercised by CI but the source paths are preserved.
 
 ## Running
@@ -126,7 +126,7 @@ OpenRGB --server --server-port 6742 --noautoconnect
 ```
 
 The TCP SDK server listens on the port and accepts clients. There is no GUI, no
-window, no tray icon — it is a pure background process. `--noautoconnect`
+window, no tray icon - it is a pure background process. `--noautoconnect`
 prevents auto-connecting to a remote OpenRGB instance and is the right default
 for an embedded server.
 
@@ -155,4 +155,4 @@ recurring manual step.
 ## Credits
 
 All upstream code © Adam Honse (CalcProgrammer1) and the OpenRGB contributors.
-Headless build patches by [@integretti](https://github.com/integretti).
+Headless build patches by [hello-nexus](https://github.com/hello-nexus).
