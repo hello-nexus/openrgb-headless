@@ -25,7 +25,7 @@ win32: LIBS   += -lshell32 -ladvapi32 -luser32 -lole32 -lws2_32 -liphlpapi -lset
 #-----------------------------------------------------------------------------------------------#
 MAJOR       = 0
 MINOR       = 9
-SUFFIX      = 1.0rc3
+SUFFIX      = git
 
 SHORTHASH   = $$system("git rev-parse --short=7 HEAD")
 LASTTAG     = "release_"$$MAJOR"."$$MINOR
