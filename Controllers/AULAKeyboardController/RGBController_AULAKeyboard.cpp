@@ -9,6 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <cstring>
 #include "RGBController_AULAKeyboard.h"
 #include "RGBControllerKeyNames.h"
 
@@ -16,6 +17,15 @@
 #define NA  0xFFFFFFFF
 
 #define AULA_KB_LED_COUNT   80  /* 76 high-confidence + 4 unverified nav keys */
+
+/*-----------------------------------------------------------------------------*\
+| The firmware latches a frame only when it receives the full matrix, so every   |
+| frame streams all 94 F98Pro matrix slots (padded to 7 x 64-byte chunks = 448   |
+| bytes, matching the reference Aula F98Pro.js send exactly).  Mapped keys carry  |
+| their colour; unpopulated matrix slots (the F98Pro numpad) go black.           |
+\*-----------------------------------------------------------------------------*/
+#define AULA_KB_FRAME_SLOTS 94
+#define AULA_KB_FRAME_BYTES 448 /* 7 * 64 */
 
 /*---------------------------------------------------------------------------*\
 | TODO(phase2): No device is available to verify against, so this layout is    |
@@ -80,6 +90,23 @@ static const char* led_names[AULA_KB_LED_COUNT] =
     KEY_EN_RIGHT_ARROW,
     // UNVERIFIED nav column (see hw_index note above)
     KEY_EN_DELETE,      KEY_EN_PAGE_UP,     KEY_EN_PAGE_DOWN,   KEY_EN_END,
+};
+
+/*-----------------------------------------------------------------*\
+| Full matrix send order (the F98Pro `indexes` sequence): every      |
+| hardware slot the firmware expects per frame.  DeviceUpdateLEDs     |
+| colours the slots present in hw_index and blacks the rest.  0x20    |
+| (Delete guess) is absent from the F98Pro matrix, so Delete is not   |
+| driven by this frame.                                               |
+\*-----------------------------------------------------------------*/
+static const unsigned char full_frame_indexes[AULA_KB_FRAME_SLOTS] =
+{
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x13, 0x14, 0x15,
+    0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x67, 0x77, 0x21, 0x22, 0x7A, 0x25,
+    0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x43, 0x32, 0x33, 0x34,
+    0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x55, 0x44, 0x45, 0x46,
+    0x7B, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x65, 0x56, 0x57,
+    0x58, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60, 0x62, 0x63, 0x64, 0x66, 0x68, 0x69, 0x6A,
 };
 
 /**------------------------------------------------------------------*\
@@ -167,17 +194,35 @@ void RGBController_AULAKeyboard::ResizeZone(int /*zone*/, int /*new_size*/)
 
 void RGBController_AULAKeyboard::DeviceUpdateLEDs()
 {
-    unsigned char quad_data[AULA_KB_LED_COUNT * 4];
+    unsigned char quad_data[AULA_KB_FRAME_BYTES];
 
-    for(int led_idx = 0; led_idx < AULA_KB_LED_COUNT; led_idx++)
+    /*-----------------------------------------------------*\
+    | Zero-pad to the full 7-chunk frame; slots the board    |
+    | does not populate stay black.                          |
+    \*-----------------------------------------------------*/
+    memset(quad_data, 0x00, sizeof(quad_data));
+
+    for(unsigned int slot = 0; slot < AULA_KB_FRAME_SLOTS; slot++)
     {
-        quad_data[(4 * led_idx) + 0] = hw_index[led_idx];
-        quad_data[(4 * led_idx) + 1] = RGBGetRValue(colors[led_idx]);
-        quad_data[(4 * led_idx) + 2] = RGBGetGValue(colors[led_idx]);
-        quad_data[(4 * led_idx) + 3] = RGBGetBValue(colors[led_idx]);
+        unsigned char   idx   = full_frame_indexes[slot];
+        RGBColor        color = 0x00000000;
+
+        for(int led_idx = 0; led_idx < AULA_KB_LED_COUNT; led_idx++)
+        {
+            if(hw_index[led_idx] == idx)
+            {
+                color = colors[led_idx];
+                break;
+            }
+        }
+
+        quad_data[(4 * slot) + 0] = idx;
+        quad_data[(4 * slot) + 1] = RGBGetRValue(color);
+        quad_data[(4 * slot) + 2] = RGBGetGValue(color);
+        quad_data[(4 * slot) + 3] = RGBGetBValue(color);
     }
 
-    controller->SetKeyboardColors(quad_data, AULA_KB_LED_COUNT * 4);
+    controller->SetKeyboardColors(quad_data, AULA_KB_FRAME_BYTES);
 }
 
 void RGBController_AULAKeyboard::UpdateZoneLEDs(int /*zone*/)
