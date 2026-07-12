@@ -20,7 +20,7 @@ void DetectQMKKeychronControllers(hid_device_info *info, const std::string& /*na
 
     if(dev)
     {
-        QMKKeychronController* controller = new QMKKeychronController(dev, info->path);
+        QMKKeychronController* controller = new QMKKeychronController(dev, info->path, info->product_id);
 
         if(controller->GetSupported())
         {
