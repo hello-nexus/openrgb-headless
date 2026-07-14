@@ -292,7 +292,11 @@ void CorsairPeripheralV2Controller::ClearPacketBuffer()
         return;
     }
 
-    uint8_t result          = 0;
+    /*---------------------------------------------------------*\
+    | Must stay signed: hid_read_timeout() returns -1 on error; |
+    |   an unsigned result would never exit this loop           |
+    \*---------------------------------------------------------*/
+    int     result          = 0;
     uint8_t buffer[CORSAIR_V2_PACKET_SIZE];
 
     do
