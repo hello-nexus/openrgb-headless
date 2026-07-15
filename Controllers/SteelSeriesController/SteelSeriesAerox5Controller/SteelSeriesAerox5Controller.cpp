@@ -36,7 +36,7 @@ void SteelSeriesAerox5Controller::SendInit()
 
 std::string SteelSeriesAerox5Controller::GetFirmwareVersion()
 {
-    uint8_t result      = 0;
+    int     result      = 0;
     const uint8_t CMD   = 0x90;
     const uint8_t sz    = 16;
     char version[sz + 1];

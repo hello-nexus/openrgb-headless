@@ -98,7 +98,7 @@ std::string AsusAuraCoreLaptopController::GetDeviceDescription()
 unsigned int AsusAuraCoreLaptopController::GetKeyboardLayout()
 {
     const uint8_t index                                     = 6;
-    uint8_t result                                          = 0;
+    int     result                                          = 0;
     uint8_t rd_buf[ASUSAURACORELAPTOP_WRITE_PACKET_SIZE]    = { ASUSAURACORELAPTOP_REPORT_ID };
     uint8_t buffer[ASUSAURACORELAPTOP_WRITE_PACKET_SIZE]    = { ASUSAURACORELAPTOP_REPORT_ID,
                                                                 ASUSAURACORELAPTOP_CMD_LAYOUT,
