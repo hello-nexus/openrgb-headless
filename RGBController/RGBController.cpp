@@ -1671,7 +1671,7 @@ void RGBController::SetZoneColorDescription(unsigned char* data_buf)
     /*---------------------------------------------------------*\
     | Check if we aren't reading beyond the list of zones.      |
     \*---------------------------------------------------------*/
-    if(((size_t)zone_idx) > zones.size())
+    if(((size_t)zone_idx) >= zones.size())
     {
         return;
     }
@@ -1739,7 +1739,7 @@ void RGBController::SetSingleLEDColorDescription(unsigned char* data_buf)
     /*---------------------------------------------------------*\
     | Check if we aren't reading beyond the list of leds.       |
     \*---------------------------------------------------------*/
-    if(((size_t)led_idx) > leds.size())
+    if(((size_t)led_idx) >= leds.size())
     {
         return;
     }
@@ -2157,11 +2157,19 @@ void RGBController::DeviceSaveMode()
 
 void RGBController::ClearSegments(int zone)
 {
+    if(zone < 0 || ((size_t)zone) >= zones.size())
+    {
+        return;
+    }
     zones[zone].segments.clear();
 }
 
 void RGBController::AddSegment(int zone, segment new_segment)
 {
+    if(zone < 0 || ((size_t)zone) >= zones.size())
+    {
+        return;
+    }
     zones[zone].segments.push_back(new_segment);
 }
 

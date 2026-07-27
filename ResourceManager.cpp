@@ -18,6 +18,7 @@
 
 #include <stdlib.h>
 #include <string>
+#include <set>
 #include <future>
 #include <hidapi.h>
 #include "cli.h"
@@ -1103,6 +1104,32 @@ static void RegisterDetectionFailurePlaceholder(const char* detector_name)
     ResourceManager::get()->RegisterRGBController(placeholder);
 }
 
+/*-------------------------------------------------------------------------*\
+| Placeholder-only detectors ("Detectors" -> "placeholder_only" name list): |
+| the detector is disabled (device never opened, no keepalives, no packets  |
+| sent) but matched hardware is still reported to SDK clients as a zero-LED |
+| dummy carrying the HID identity, so a host can show the device as present |
+| while another RGB stack drives it. Registered at the detector gates where |
+| hardware presence is already confirmed (HID match / DIMM JEDEC match);    |
+| presence-probing detector families (plain I2C, I2C PCI, "other") get      |
+| plain disable semantics with no placeholder.                              |
+\*-------------------------------------------------------------------------*/
+static void RegisterPlaceholderOnlyDevice(const char* detector_name, hid_device_info* info)
+{
+    RGBController_Dummy* placeholder = new RGBController_Dummy();
+    placeholder->name    = detector_name;
+    placeholder->type    = DEVICE_TYPE_UNKNOWN;
+    placeholder->version = "";
+    if(info != NULL)
+    {
+        placeholder->vendor      = StringUtils::wchar_to_char(info->manufacturer_string);
+        placeholder->description = StringUtils::wchar_to_char(info->product_string);
+        placeholder->serial      = StringUtils::wchar_to_char(info->serial_number);
+        placeholder->location    = std::string("HID: ") + (info->path ? info->path : "");
+    }
+    ResourceManager::get()->RegisterRGBController(placeholder);
+}
+
 static bool RunDetectorWithTimeout(
     std::function<void()>   fn,
     const char*             name,
@@ -1161,6 +1188,8 @@ void ResourceManager::DetectDevicesCoroutine()
     hid_device_info*    hid_devices                 = NULL;
     bool                hid_safe_mode               = false;
     unsigned int        initial_detection_delay_ms  = 0;
+    std::set<std::string> placeholder_only_detectors;
+    std::set<std::string> placeholder_registered;
 
     LOG_INFO("------------------------------------------------------");
     LOG_INFO("|               Start device detection               |");
@@ -1186,6 +1215,23 @@ void ResourceManager::DetectDevicesCoroutine()
     if(detector_settings.contains("initial_detection_delay_ms"))
     {
         initial_detection_delay_ms = detector_settings["initial_detection_delay_ms"];
+    }
+
+    /*-----------------------------------------------------*\
+    | Read the placeholder-only detector name list. Names   |
+    | listed here must ALSO be disabled via "detectors";    |
+    | the list only adds the placeholder registration on    |
+    | top of the disable.                                   |
+    \*-----------------------------------------------------*/
+    if(detector_settings.contains("placeholder_only") && detector_settings["placeholder_only"].is_array())
+    {
+        for(const json& placeholder_entry : detector_settings["placeholder_only"])
+        {
+            if(placeholder_entry.is_string())
+            {
+                placeholder_only_detectors.insert(placeholder_entry.get<std::string>());
+            }
+        }
     }
 
     /*-----------------------------------------------------*\
@@ -1393,6 +1439,11 @@ void ResourceManager::DetectDevicesCoroutine()
                             detection_string,
                             DETECTOR_TIMEOUT_MS);
                     }
+                    else if(placeholder_only_detectors.count(detection_string) &&
+                            placeholder_registered.insert(detection_string).second)
+                    {
+                        RegisterPlaceholderOnlyDevice(detection_string, NULL);
+                    }
 
                     LOG_TRACE("[%s] detection end", detection_string);
                 }
@@ -1513,6 +1564,11 @@ void ResourceManager::DetectDevicesCoroutine()
 
                         LOG_TRACE("[%s] detection end", detection_string);
                     }
+                    else if(placeholder_only_detectors.count(detection_string) &&
+                            placeholder_registered.insert(std::string(detection_string) + "|" + (current_hid_device->path ? current_hid_device->path : "")).second)
+                    {
+                        RegisterPlaceholderOnlyDevice(detection_string, current_hid_device);
+                    }
                 }
 
                 current_hid_device = current_hid_device->next;
@@ -1572,6 +1628,11 @@ void ResourceManager::DetectDevicesCoroutine()
                             detection_string,
                             DETECTOR_TIMEOUT_MS);
                     }
+                    else if(placeholder_only_detectors.count(detection_string) &&
+                            placeholder_registered.insert(std::string(detection_string) + "|" + (current_hid_device->path ? current_hid_device->path : "")).second)
+                    {
+                        RegisterPlaceholderOnlyDevice(detection_string, current_hid_device);
+                    }
                 }
             }
 
@@ -1607,6 +1668,11 @@ void ResourceManager::DetectDevicesCoroutine()
                             [&]() { detector.function(default_wrapper, current_hid_device, hid_wrapped_device_detectors[hid_detector_idx].name); },
                             detection_string,
                             DETECTOR_TIMEOUT_MS);
+                    }
+                    else if(placeholder_only_detectors.count(detection_string) &&
+                            placeholder_registered.insert(std::string(detection_string) + "|" + (current_hid_device->path ? current_hid_device->path : "")).second)
+                    {
+                        RegisterPlaceholderOnlyDevice(detection_string, current_hid_device);
                     }
                 }
             }
@@ -1724,6 +1790,11 @@ void ResourceManager::DetectDevicesCoroutine()
                             [&]() { detector.function(wrapper, current_hid_device, detector.name); },
                             detection_string,
                             DETECTOR_TIMEOUT_MS);
+                    }
+                    else if(placeholder_only_detectors.count(detection_string) &&
+                            placeholder_registered.insert(std::string(detection_string) + "|" + (current_hid_device->path ? current_hid_device->path : "")).second)
+                    {
+                        RegisterPlaceholderOnlyDevice(detection_string, current_hid_device);
                     }
                 }
             }
