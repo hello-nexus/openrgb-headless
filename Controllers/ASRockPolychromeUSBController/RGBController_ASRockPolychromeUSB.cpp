@@ -11,6 +11,7 @@
 \*---------------------------------------------------------*/
 
 #include <string.h>
+#include "LogManager.h"
 #include "RGBController_ASRockPolychromeUSB.h"
 
 #define ASROCK_USB_MAX_ZONES        8
@@ -192,6 +193,7 @@ void RGBController_PolychromeUSB::SetupZones()
     \*-------------------------------------------------*/
     leds.clear();
     colors.clear();
+    zones_info.clear();
     zones.resize(controller->GetChannelCount());
 
     /*-------------------------------------------------*\
@@ -275,8 +277,36 @@ void RGBController_PolychromeUSB::SetupZones()
 
 void RGBController_PolychromeUSB::ResizeZone(int zone, int new_size)
 {
-    zones[zone].leds_count = (unsigned char) new_size;
+    if((size_t)zone >= zones.size())
+    {
+        return;
+    }
+
+    if(new_size == (int)zones[zone].leds_count)
+    {
+        return;
+    }
+
+    /*---------------------------------------------------------*\
+    | Fixed zones report leds_min == leds_max. Accepting an out |
+    | of range count left the zones summing past leds.size(),   |
+    | putting every later zone's colors at the wrong offset.    |
+    | Zero is refused too: SetupColors leaves a zero count      |
+    | zone's color pointer NULL and the writers deref it.       |
+    \*---------------------------------------------------------*/
+    if((new_size < 1) || ((unsigned int)new_size < zones[zone].leds_min) || ((unsigned int)new_size > zones[zone].leds_max))
+    {
+        LOG_WARNING("[%s] zone %d '%s' takes %u-%u LEDs, refusing resize to %d", name.c_str(), zone, zones[zone].name.c_str(), zones[zone].leds_min, zones[zone].leds_max, new_size);
+        return;
+    }
+
     controller->ResizeZone(zones_info[zone].zone, new_size);
+
+    /*---------------------------------------------------------*\
+    | Zone color pointers are raw offsets into colors, so they  |
+    | go stale as soon as a count moves.                        |
+    \*---------------------------------------------------------*/
+    SetupZones();
 }
 
 void RGBController_PolychromeUSB::DeviceUpdateLEDs()

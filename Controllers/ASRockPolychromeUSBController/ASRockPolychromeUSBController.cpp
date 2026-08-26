@@ -195,9 +195,26 @@ void PolychromeUSBController::ResizeZone(int zone, int new_size)
 {
     unsigned char zonecfg[POLYCHROME_USB_ZONE_MAX_NUM];
 
+    if((zone < 0) || (zone >= POLYCHROME_USB_ZONE_MAX_NUM))
+    {
+        return;
+    }
+
     memset(zonecfg, POLYCHROME_USB_ZONE_UNAVAILABLE, POLYCHROME_USB_ZONE_MAX_NUM);
 
     configtable[zone] = new_size;
+
+    /*-----------------------------------------------------*\
+    | SetupZones rebuilds the zones from device_info, so it |
+    | has to track configtable or the rebuild undoes this.  |
+    \*-----------------------------------------------------*/
+    for(std::size_t idx = 0; idx < device_info.size(); idx++)
+    {
+        if(device_info[idx].zone_type == zone)
+        {
+            device_info[idx].num_leds = (unsigned char)new_size;
+        }
+    }
 
     for(unsigned int i = 0; i < POLYCHROME_USB_ZONE_MAX_NUM; i++)
     {
