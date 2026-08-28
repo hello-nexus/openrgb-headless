@@ -11,119 +11,335 @@
 
 #pragma once
 
+#include <condition_variable>
+#include <list>
 #include <mutex>
+#include <queue>
 #include <thread>
 #include <condition_variable>
+#include "i2c_smbus.h"
+#include "ResourceManager.h"
 #include "RGBController.h"
 #include "NetworkProtocol.h"
 #include "net_port.h"
 
-typedef void (*NetClientCallback)(void *);
+/*---------------------------------------------------------*\
+| Callback Types                                            |
+\*---------------------------------------------------------*/
+typedef void (*NetworkClientCallback)(void*, unsigned int);
+
+/*---------------------------------------------------------*\
+| NetworkClient Update Reason Codes                         |
+\*---------------------------------------------------------*/
+enum
+{
+    NETWORKCLIENT_UPDATE_REASON_CLIENT_STARTED,                         /* Client started                   */
+    NETWORKCLIENT_UPDATE_REASON_CLIENT_STOPPED,                         /* Client stopped                   */
+    NETWORKCLIENT_UPDATE_REASON_CLIENT_CONNECTED,                       /* Client connectedd                */
+    NETWORKCLIENT_UPDATE_REASON_CLIENT_DISCONNECTED,                    /* Client disconnected              */
+    NETWORKCLIENT_UPDATE_REASON_SERVER_STRING_RECEIVED,                 /* Server string received           */
+    NETWORKCLIENT_UPDATE_REASON_PROTOCOL_NEGOTIATED,                    /* Protocol version negotiated      */
+    NETWORKCLIENT_UPDATE_REASON_DEVICE_LIST_UPDATED,                    /* Device list updated              */
+    NETWORKCLIENT_UPDATE_REASON_DETECTION_STARTED,                      /* Detection started                */
+    NETWORKCLIENT_UPDATE_REASON_DETECTION_PROGRESS_CHANGED,             /* Detection progress changed       */
+    NETWORKCLIENT_UPDATE_REASON_DETECTION_COMPLETE,                     /* Detection completed              */
+    NETWORKCLIENT_UPDATE_REASON_PROFILEMANAGER_PROFILE_LIST_UPDATED,    /* Profile list updated             */
+    NETWORKCLIENT_UPDATE_REASON_PROFILEMANAGER_ACTIVE_PROFILE_CHANGED,  /* Active profile changed           */
+    NETWORKCLIENT_UPDATE_REASON_SERVER_HOSTNAME_RECEIVED,               /* Server hostname received         */
+    NETWORKCLIENT_UPDATE_REASON_SERVER_FLAGS_RECEIVED,                  /* Server flags received            */
+};
+
+typedef struct
+{
+    NetPacketHeader             header;
+    unsigned char*              data;
+    unsigned int                generation;
+} NetworkClientListenerThreadQueueEntry;
+
+typedef struct
+{
+    unsigned int                                        id;
+    unsigned int                                        index;
+    std::queue<NetworkClientListenerThreadQueueEntry>   queue;
+    std::mutex                                          queue_mutex;
+    std::mutex                                          start_mutex;
+    std::condition_variable                             start_cv;
+    std::thread*                                        thread;
+    std::atomic<bool>                                   online;
+} NetworkClientListenerThread;
 
 class NetworkClient
 {
 public:
-    NetworkClient(std::vector<RGBController *>& control);
+    NetworkClient();
     ~NetworkClient();
 
-    void            ClientInfoChanged();
+    /*-----------------------------------------------------*\
+    | Client Information functions                          |
+    \*-----------------------------------------------------*/
+    bool                                GetConnected();
+    std::string                         GetIP();
+    bool                                GetLocal();
+    unsigned short                      GetPort();
+    unsigned int                        GetProtocolVersion();
+    bool                                GetOnline();
+    std::string                         GetServerHostname();
+    std::string                         GetServerName();
+    bool                                GetSupportsRGBControllerAPI();
+    bool                                GetSupportsLogManagerAPI();
+    bool                                GetSupportsProfileManagerAPI();
+    bool                                GetSupportsPluginManagerAPI();
+    bool                                GetSupportsSettingsManagerAPI();
+    bool                                GetSupportsDetectionAPI();
+    bool                                GetSupportsDeviceInfoAPI();
 
-    bool            GetConnected();
-    std::string     GetIP();
-    unsigned short  GetPort();
-    unsigned int    GetProtocolVersion();
-    bool            GetOnline();
+    /*-----------------------------------------------------*\
+    | Client Control functions                              |
+    \*-----------------------------------------------------*/
+    void                                RequestLocalClient(bool request_local);
+    void                                SetIP(std::string new_ip);
+    void                                SetName(std::string new_name);
+    void                                SetPort(unsigned short new_port);
 
-    void            ClearCallbacks();
-    void            RegisterClientInfoChangeCallback(NetClientCallback new_callback, void * new_callback_arg);
+    void                                StartClient();
+    void                                StopClient();
 
-    void            SetIP(std::string new_ip);
-    void            SetName(std::string new_name);
-    void            SetPort(unsigned short new_port);
+    /*-----------------------------------------------------*\
+    | Controller teardown functions                         |
+    \*-----------------------------------------------------*/
+    void                                DeleteOrphanedControllers();
+    void                                TakeOrphanedControllers(std::vector<RGBController*>& orphaned);
 
-    void            StartClient();
-    void            StopClient();
+    void                                SendRequest_ControllerData(unsigned int dev_id);
+    void                                SendRequest_RescanDevices();
 
-    void            ConnectionThreadFunction();
-    void            ListenThreadFunction();
+    /*-----------------------------------------------------*\
+    | Client Callback functions                             |
+    \*-----------------------------------------------------*/
+    void                                ClearCallbacks();
+    void                                RegisterNetworkClientCallback(NetworkClientCallback new_callback, void* new_callback_arg);
 
-    void            WaitOnControllerData();
+    /*-----------------------------------------------------*\
+    | Device Info Functions                                 |
+    \*-----------------------------------------------------*/
+    std::vector<HIDDeviceInfo>          GetHIDDeviceInfo();
+    std::vector<i2c_smbus_info>         GetI2CBusInfo();
+    std::vector<std::string>            GetSerialPorts();
+    std::vector<USBDeviceInfo>          GetUSBDeviceInfo();
+    std::vector<SerialDeviceInfo>       GetUSBSerialPorts();
 
-    void        ProcessReply_ControllerCount(unsigned int data_size, char * data);
-    void        ProcessReply_ControllerData(unsigned int data_size, char * data, unsigned int dev_idx);
-    void        ProcessReply_ProtocolVersion(unsigned int data_size, char * data);
+    /*-----------------------------------------------------*\
+    | DetectionManager functions                            |
+    \*-----------------------------------------------------*/
+    unsigned int                        DetectionManager_GetDetectionPercent();
+    std::string                         DetectionManager_GetDetectionString();
 
-    void        ProcessRequest_DeviceListChanged();
+    /*-----------------------------------------------------*\
+    | LogManager functions                                  |
+    \*-----------------------------------------------------*/
+    void                                LogManager_ClearLogBuffer();
+    void                                LogManager_GetLogBuffer();
+    unsigned int                        LogManager_GetLogLevel();
+    void                                LogManager_SetLogLevel(unsigned int log_level);
 
-    void        SendData_ClientString();
+    /*-----------------------------------------------------*\
+    | ProfileManager functions                              |
+    \*-----------------------------------------------------*/
+    void                                ProfileManager_GetProfileList();
+    void                                ProfileManager_LoadProfile(std::string profile_name);
+    void                                ProfileManager_SaveProfile(std::string profile_name);
+    void                                ProfileManager_DeleteProfile(std::string profile_name);
+    void                                ProfileManager_UploadProfile(std::string profile_json_str);
+    std::string                         ProfileManager_DownloadProfile(std::string profile_name);
+    std::string                         ProfileManager_GetActiveProfile();
+    void                                ProfileManager_ClearActiveProfile();
 
-    void        SendRequest_ControllerCount();
-    void        SendRequest_ControllerData(unsigned int dev_idx);
-    void        SendRequest_ProtocolVersion();
+    /*-----------------------------------------------------*\
+    | SettingsManager functions                             |
+    \*-----------------------------------------------------*/
+    std::string                         SettingsManager_GetSettings(std::string settings_key);
+    std::string                         SettingsManager_GetSettingsSchema(std::string settings_key);
+    void                                SettingsManager_ModifySettings(std::string settings_json_str);
+    void                                SettingsManager_SaveSettings();
+    void                                SettingsManager_SetSettings(std::string settings_json_str);
 
-    void        SendRequest_RescanDevices();
+    /*-----------------------------------------------------*\
+    | RGBController functions                               |
+    \*-----------------------------------------------------*/
+    std::vector<RGBController*>&        GetRGBControllers();
 
-    void        SendRequest_RGBController_ClearSegments(unsigned int dev_idx, int zone);
-    void        SendRequest_RGBController_AddSegment(unsigned int dev_idx, unsigned char * data, unsigned int size);
-    void        SendRequest_RGBController_ResizeZone(unsigned int dev_idx, int zone, int new_size);
+    void                                SendRequest_RGBController_ClearSegments(unsigned int dev_idx, int zone);
+    void                                SendRequest_RGBController_AddSegment(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
+    void                                SendRequest_RGBController_ConfigureZone(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
+    void                                SendRequest_RGBController_ResizeZone(unsigned int dev_idx, int zone, int new_size);
+    void                                SendRequest_RGBController_ConfigureDevice(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
+    void                                SendRequest_RGBController_SetHidden(unsigned int dev_idx, bool hidden);
 
-    void        SendRequest_RGBController_UpdateLEDs(unsigned int dev_idx, unsigned char * data, unsigned int size);
-    void        SendRequest_RGBController_UpdateZoneLEDs(unsigned int dev_idx, unsigned char * data, unsigned int size);
-    void        SendRequest_RGBController_UpdateSingleLED(unsigned int dev_idx, unsigned char * data, unsigned int size);
+    void                                SendRequest_RGBController_UpdateLEDs(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
+    void                                SendRequest_RGBController_UpdateZoneLEDs(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
+    void                                SendRequest_RGBController_UpdateSingleLED(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
 
-    void        SendRequest_RGBController_SetCustomMode(unsigned int dev_idx);
+    void                                SendRequest_RGBController_SetCustomMode(unsigned int dev_idx);
 
-    void        SendRequest_RGBController_UpdateMode(unsigned int dev_idx, unsigned char * data, unsigned int size);
-    void        SendRequest_RGBController_SaveMode(unsigned int dev_idx, unsigned char * data, unsigned int size);
+    void                                SendRequest_RGBController_UpdateMode(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
+    void                                SendRequest_RGBController_UpdateZoneMode(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
+    void                                SendRequest_RGBController_SaveMode(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
 
+    void                                SendRequest_RGBController_SetDeviceSpecificConfiguration(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
+    void                                SendRequest_RGBController_SetDeviceSpecificZoneConfiguration(unsigned int dev_idx, unsigned char* data_ptr, unsigned int data_size);
 
-    std::vector<std::string> * ProcessReply_ProfileList(unsigned int data_size, char * data);
-
-    void        SendRequest_GetProfileList();
-    void        SendRequest_LoadProfile(std::string profile_name);
-    void        SendRequest_SaveProfile(std::string profile_name);
-    void        SendRequest_DeleteProfile(std::string profile_name);
-
-    std::vector<RGBController *>  server_controllers;
-
-    std::mutex                          ControllerListMutex;
-
-protected:
-    std::vector<RGBController *>& controllers;
-
+    void                                WaitOnControllerData();
 
 private:
-    SOCKET          client_sock;
-    std::string     client_name;
-    net_port        port;
-    std::string     port_ip;
-    unsigned short  port_num;
-    std::atomic<bool> client_active;
-    bool            client_string_sent;
-    bool            controller_data_received;
-    bool            controller_data_requested;
-    bool            protocol_initialized;
-    bool            server_connected;
-    bool            server_initialized;
-    bool            server_reinitialize;
-    unsigned int    server_controller_count;
-    bool            server_controller_count_requested;
-    bool            server_controller_count_received;
-    unsigned int    server_protocol_version;
-    bool            server_protocol_version_received;
-    bool            change_in_progress;
-    unsigned int    requested_controllers;
-    std::mutex      send_in_progress;
+    /*-----------------------------------------------------*\
+    | Client state variables                                |
+    \*-----------------------------------------------------*/
+    std::atomic<bool>                   client_active;
+    bool                                client_flags_sent;
+    bool                                client_is_local_client;
+    bool                                client_string_sent;
+    bool                                controller_data_received;
+    bool                                controller_data_requested;
+    bool                                protocol_initialized;
+    unsigned int                        protocol_version;
+    bool                                change_in_progress;
+    unsigned int                        requested_controller_index;
+    std::mutex                          send_in_progress;
 
-    std::mutex      connection_mutex;
-    std::condition_variable connection_cv;
+    /*-----------------------------------------------------*\
+    | Every packet the listener does not handle inline.     |
+    | Replies are claimed by WaitForResponse, callback      |
+    | packets by the receive queue thread.  Whoever         |
+    | claims an entry frees its data.                       |
+    \*-----------------------------------------------------*/
+    std::list<NetworkClientListenerThreadQueueEntry>
+                                        receive_queue;
+    std::mutex                          receive_queue_mutex;
+    std::condition_variable             receive_queue_cv;
+    unsigned int                        receive_generation;
 
-    std::thread *   ConnectionThread;
-    std::thread *   ListenThread;
+    /*-----------------------------------------------------*\
+    | Client information                                    |
+    \*-----------------------------------------------------*/
+    unsigned int                        client_flags;
+    std::string                         client_hostname;
+    std::string                         client_name;
+    SOCKET                              client_sock;
+    net_port                            port;
+    std::string                         port_ip;
+    unsigned short                      port_num;
 
-    std::mutex                          ClientInfoChangeMutex;
-    std::vector<NetClientCallback>      ClientInfoChangeCallbacks;
-    std::vector<void *>                 ClientInfoChangeCallbackArgs;
+    /*-----------------------------------------------------*\
+    | Server information                                    |
+    \*-----------------------------------------------------*/
+    unsigned int                        server_flags;
+    bool                                server_flags_initialized;
+    std::string                         server_hostname;
+    std::string                         server_name;
+    bool                                server_connected;
+    bool                                server_initialized;
+    bool                                server_reinitialize;
+    bool                                server_controller_ids_requested;
+    bool                                server_controller_ids_received;
+    unsigned int                        server_protocol_version;
+    bool                                server_protocol_version_received;
 
-    int recv_select(SOCKET s, char *buf, int len, int flags);
+    /*-----------------------------------------------------*\
+    | Client threads                                        |
+    \*-----------------------------------------------------*/
+    std::mutex                          connection_mutex;
+    std::condition_variable             connection_cv;
+    std::thread *                       ConnectionThread;
+    std::thread *                       ListenThread;
+    NetworkClientListenerThread*        profilemanager_thread;
+
+    /*-----------------------------------------------------*\
+    | Receive queue thread.  Runs the callback-emitting     |
+    | packets, which block on the GUI thread while the      |
+    | GUI may itself be blocked on a reply.  Queue order    |
+    | keeps plugin callbacks single threaded.               |
+    \*-----------------------------------------------------*/
+    std::thread*                        ReceiveQueueThread;
+    bool                                receive_queue_thread_running;
+
+    void                                ReceiveQueueThreadFunction();
+    void                                StopReceiveQueueThread();
+
+    /*-----------------------------------------------------*\
+    | Callbacks                                             |
+    \*-----------------------------------------------------*/
+    std::mutex                          NetworkClientCallbackMutex;
+    std::vector<NetworkClientCallback>  NetworkClientCallbacks;
+    std::vector<void *>                 NetworkClientCallbackArgs;
+
+    /*-----------------------------------------------------*\
+    | Controller list                                       |
+    \*-----------------------------------------------------*/
+    std::mutex                          ControllerListMutex;
+    std::vector<RGBController*>         server_controllers;
+    std::vector<RGBController*>         orphaned_controllers;
+    std::vector<unsigned int>           server_controller_ids;
+
+    /*-----------------------------------------------------*\
+    | Detection variables                                   |
+    \*-----------------------------------------------------*/
+    unsigned int                        detection_percent;
+    std::string                         detection_string;
+
+    /*-----------------------------------------------------*\
+    | Client callback signal functions                      |
+    \*-----------------------------------------------------*/
+    void                                SignalNetworkClientUpdate(unsigned int update_reason);
+
+    /*-----------------------------------------------------*\
+    | Client thread functions                               |
+    \*-----------------------------------------------------*/
+    void                                ConnectionThreadFunction();
+    void                                ListenThreadFunction();
+    void                                ProfileManagerListenThread(NetworkClientListenerThread* this_thread);
+
+    /*-----------------------------------------------------*\
+    | Private Client functions                              |
+    \*-----------------------------------------------------*/
+    void                                ProcessReply_ControllerData(unsigned int data_size, unsigned char* data_ptr, unsigned int dev_id);
+    void                                ProcessReply_ControllerIDs(unsigned int data_size, unsigned char* data_ptr);
+    void                                ProcessReply_ProtocolVersion(unsigned int data_size, unsigned char* data_ptr);
+    void                                ProcessRequest_DetectionProgressChanged(unsigned int data_size, unsigned char* data_ptr);
+    void                                ProcessRequest_DeviceListChanged();
+    void                                ProcessRequest_RGBController_SignalUpdate(unsigned int data_size, unsigned char* data_ptr, unsigned int dev_id);
+    void                                ProcessRequest_ServerFlags(unsigned int data_size, unsigned char* data_ptr);
+    void                                ProcessRequest_ServerHostname(unsigned int data_size, unsigned char* data_ptr);
+    void                                ProcessRequest_ServerString(unsigned int data_size, unsigned char* data_ptr);
+
+    void                                ProcessRequest_LogManager_LoggedEntry(unsigned int data_size, unsigned char* data_ptr);
+
+    void                                ProcessRequest_ProfileManager_ActiveProfileChanged(unsigned int data_size, unsigned char* data_ptr);
+    void                                ProcessRequest_ProfileManager_ProfileAboutToLoad();
+    void                                ProcessRequest_ProfileManager_ProfileListUpdated(unsigned int data_size, unsigned char* data_ptr);
+    void                                ProcessRequest_ProfileManager_ProfileLoaded(unsigned int data_size, unsigned char* data_ptr);
+
+    void                                SendData_ClientFlags();
+    void                                SendData_ClientHostname();
+    void                                SendData_ClientString();
+    void                                SendRequest_ControllerIDs();
+    void                                SendRequest_ProtocolVersion();
+
+    void                                UpdateDeviceList(RGBController* new_controller);
+
+    /*-----------------------------------------------------*\
+    | Private ProfileManager functions                      |
+    \*-----------------------------------------------------*/
+    std::vector<std::string>*           ProcessReply_ProfileList(unsigned int data_size, unsigned char* data_ptr);
+
+    /*-----------------------------------------------------*\
+    | Response queue helper                                 |
+    \*-----------------------------------------------------*/
+    NetworkClientListenerThreadQueueEntry
+                                        WaitForResponse(unsigned int expected_pkt_id);
+
+    /*-----------------------------------------------------*\
+    | Private helper functions                              |
+    \*-----------------------------------------------------*/
+    RGBController *                     controller_from_id(unsigned int id);
+    int                                 recv_select(SOCKET s, char *buf, int len, int flags);
 };

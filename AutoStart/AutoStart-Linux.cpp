@@ -120,6 +120,21 @@ bool AutoStart::IsAutoStartEnabled()
 std::string AutoStart::GetExePath()
 {
     /*-----------------------------------------------------*\
+    | When running from an AppImage, the AppImage runtime   |
+    | sets the APPIMAGE environment variable to the path of |
+    | the AppImage file itself.  /proc/self/exe would       |
+    | instead point at the extracted binary inside the      |
+    | temporary squashfs mount, which disappears once the   |
+    | AppImage is closed, so prefer APPIMAGE when it is set |
+    \*-----------------------------------------------------*/
+    const char* appimage_path = getenv("APPIMAGE");
+
+    if(appimage_path != NULL)
+    {
+        return(std::string(appimage_path));
+    }
+
+    /*-----------------------------------------------------*\
     | Create the OpenRGB executable path                    |
     \*-----------------------------------------------------*/
     char exepath[ PATH_MAX ];
@@ -133,6 +148,64 @@ std::string AutoStart::GetExePath()
 | Linux AutoStart Implementation                            |
 | Private Methods                                           |
 \*---------------------------------------------------------*/
+
+/*---------------------------------------------------------*\
+| Escape a single argument for use in a .desktop Exec=      |
+| field, per the Desktop Entry Specification.               |
+|                                                           |
+| Reserved characters must be escaped by wrapping the whole |
+| argument in double quotes and backslash-escaping the      |
+| quote/backquote/backslash/dollar characters, and any      |
+| literal '%' must be doubled to '%%'.                      |
+\*---------------------------------------------------------*/
+static std::string DesktopExecEscape(const std::string& arg)
+{
+    static const std::string reserved = " \t\n\"'`\\><~|&;$*?#()%";
+
+    bool needs_quotes = false;
+    for(char c : arg)
+    {
+        if(reserved.find(c) != std::string::npos)
+        {
+            needs_quotes = true;
+            break;
+        }
+    }
+
+    std::string escaped;
+
+    if(needs_quotes)
+    {
+        escaped += '"';
+    }
+
+    for(char c : arg)
+    {
+        switch(c)
+        {
+            case '"':
+            case '`':
+            case '\\':
+            case '$':
+                escaped += '\\';
+                escaped += c;
+                break;
+            case '%':
+                escaped += "%%";
+                break;
+            default:
+                escaped += c;
+                break;
+        }
+    }
+
+    if(needs_quotes)
+    {
+        escaped += '"';
+    }
+
+    return(escaped);
+}
 
 std::string AutoStart::GenerateDesktopFile(AutoStartInfo autostart_info)
 {
@@ -154,11 +227,17 @@ std::string AutoStart::GenerateDesktopFile(AutoStartInfo autostart_info)
     /*-----------------------------------------------------*\
     | Add the executable path and arguments                 |
     \*-----------------------------------------------------*/
-    fileContents << "Exec="              << autostart_info.path;
+    fileContents << "Exec="              << DesktopExecEscape(autostart_info.path);
 
     if (autostart_info.args != "")
     {
-        fileContents << " " << autostart_info.args;
+        std::istringstream arg_parser(autostart_info.args);
+        std::string arg;
+
+        while(arg_parser >> arg)
+        {
+            fileContents << " " << DesktopExecEscape(arg);
+        }
     }
 
     fileContents << std::endl;

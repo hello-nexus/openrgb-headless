@@ -10,7 +10,7 @@
 \*---------------------------------------------------------*/
 
 #include <vector>
-#include "Detector.h"
+#include "DetectionManager.h"
 #include "HYTENexusController.h"
 #include "RGBController_HYTENexus.h"
 #include "find_usb_serial_port.h"
@@ -32,34 +32,32 @@ static const hyte_nexus_type hyte_nexus_devices[] =
     { HYTE_VID, HYTE_NEXUS_PORTAL_NP50_PID, "HYTE Nexus Portal NP50" },
 };
 
-/******************************************************************************************\
-*                                                                                          *
-*   DetectHYTENexusControllers                                                             *
-*                                                                                          *
-*       Detect devices supported by the HYTENexus driver                                   *
-*                                                                                          *
-\******************************************************************************************/
-
-void DetectHYTENexusControllers()
+DetectedControllers DetectHYTENexusControllers()
 {
+    DetectedControllers detected_controllers;
+
     for(unsigned int device_id = 0; device_id < HYTE_NEXUS_NUM_DEVICES; device_id++)
     {
-        std::vector<std::string *> ports = find_usb_serial_port(hyte_nexus_devices[device_id].vid, hyte_nexus_devices[device_id].pid);
+        std::vector<std::string> ports = find_usb_serial_port(hyte_nexus_devices[device_id].vid, hyte_nexus_devices[device_id].pid);
 
         for(unsigned int i = 0; i < ports.size(); i++)
         {
-            if(*ports[i] != "")
+            if(ports[i] != "")
             {
-                HYTENexusController *     controller     = new HYTENexusController((char *)ports[i]->c_str(), hyte_nexus_devices[device_id].pid, hyte_nexus_devices[device_id].name);
+                HYTENexusController *     controller     = new HYTENexusController((char *)ports[i].c_str(), hyte_nexus_devices[device_id].pid, hyte_nexus_devices[device_id].name);
                 RGBController_HYTENexus * rgb_controller = new RGBController_HYTENexus(controller);
 
-                ResourceManager::get()->RegisterRGBController(rgb_controller);
+                detected_controllers.push_back(rgb_controller);
             }
         }
     }
-}   /* DetectHYTENexusControllers() */
+
+    return(detected_controllers);
+}
 
 REGISTER_DETECTOR("HYTE Nexus", DetectHYTENexusControllers);
+REGISTER_CUSTOM_UDEV_RULE(hyte_q60, "HYTE THICC Q60", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"3402\", ATTRS{idProduct}==\"0400\", TAG+=\"uaccess\", TAG+=\"HYTE_THICC_Q60\"");
+REGISTER_CUSTOM_UDEV_RULE(hyte_nexus_portal, "HYTE Nexus Portal NP50", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"3402\", ATTRS{idProduct}==\"0901\", TAG+=\"uaccess\", TAG+=\"HYTE_Nexus_Portal_NP50\"");
 /*---------------------------------------------------------------------------------------------------------*\
 | Entries for dynamic UDEV rules                                                                            |
 |                                                                                                           |

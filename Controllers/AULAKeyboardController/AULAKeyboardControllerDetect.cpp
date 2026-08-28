@@ -10,7 +10,7 @@
 \*---------------------------------------------------------*/
 
 #include <hidapi.h>
-#include "Detector.h"
+#include "DetectionManager.h"
 #include "AULAKeyboardController.h"
 #include "RGBController_AULAKeyboard.h"
 
@@ -30,8 +30,10 @@
 *                                                                                          *
 \******************************************************************************************/
 
-void DetectAULAKeyboards(hid_device_info* info, const std::string& name)
+DetectedControllers DetectAULAKeyboards(hid_device_info* info, const std::string& name)
 {
+    DetectedControllers detected_controllers;
+
     hid_device* dev = hid_open_path(info->path);
 
     if(dev)
@@ -39,8 +41,10 @@ void DetectAULAKeyboards(hid_device_info* info, const std::string& name)
         AULAKeyboardController*     controller     = new AULAKeyboardController(dev, info->path, name);
         RGBController_AULAKeyboard* rgb_controller = new RGBController_AULAKeyboard(controller);
 
-        ResourceManager::get()->RegisterRGBController(rgb_controller);
+        detected_controllers.push_back(rgb_controller);
     }
+
+    return(detected_controllers);
 }
 
 /*---------------------------------------------------------------------------------------------------------------------------------------------*\

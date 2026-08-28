@@ -50,13 +50,15 @@ public:
 
     void                        SetupZones();
 
-    void                        ResizeZone(int zone, int new_size);
+    void                        DeviceConfigureZone(int zone_idx);
 
     void                        DeviceUpdateLEDs();
-    void                        UpdateZoneLEDs(int zone);
-    void                        UpdateSingleLED(int led);
+    void                        DeviceUpdateZoneLEDs(int zone);
+    void                        DeviceUpdateSingleLED(int led);
 
     void                        DeviceUpdateMode();
+    void                        DeviceUpdateZoneMode(int zone);
+    void                        DeviceSaveMode() override;
 
 private:
     std::string                 detector_name;

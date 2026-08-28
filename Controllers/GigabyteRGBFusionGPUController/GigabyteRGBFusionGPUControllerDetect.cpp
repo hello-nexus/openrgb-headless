@@ -9,7 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
-#include "Detector.h"
+#include "DetectionManager.h"
 #include "GigabyteRGBFusionGPUController.h"
 #include "LogManager.h"
 #include "RGBController_GigabyteRGBFusionGPU.h"
@@ -18,21 +18,14 @@
 
 #define GIGABYTEGPU_CONTROLLER_NAME "Gigabyte RGB Fusion GPU"
 
-/******************************************************************************************\
-*                                                                                          *
-*   TestForGigabyteRGBFusionGPUController                                                  *
-*                                                                                          *
-*       Tests the given address to see if an RGB Fusion controller exists there.  First    *
-*       does a quick write to test for a response                                          *
-*                                                                                          *
-\******************************************************************************************/
-
 bool TestForGigabyteRGBFusionGPUController(i2c_smbus_interface* bus, unsigned char address)
 {
     bool pass = false;
     int res;
 
-    //Write out 0xAB 0x00 0x00 0x00 sequence
+    /*-----------------------------------------------------*\
+    | Write out 0xAB 0x00 0x00 0x00 sequence                |
+    \*-----------------------------------------------------*/
     res = bus->i2c_smbus_write_byte(address, 0xAB);
 
     if (res >= 0)
@@ -41,7 +34,10 @@ bool TestForGigabyteRGBFusionGPUController(i2c_smbus_interface* bus, unsigned ch
         bus->i2c_smbus_write_byte(address, 0x00);
         bus->i2c_smbus_write_byte(address, 0x00);
 
-        // NVIDIA_RTX3060_DEV requires additional bytes to initialise
+        /*-------------------------------------------------*\
+        | NVIDIA_RTX3060_DEV requires additional bytes to   |
+        | initialise                                        |
+        \*-------------------------------------------------*/
         if (address == 0x62)
         {
             bus->i2c_smbus_write_byte(address, 0x00);
@@ -71,7 +67,10 @@ bool TestForGigabyteRGBFusionGPUController(i2c_smbus_interface* bus, unsigned ch
         bus->i2c_smbus_read_byte(address);
         bus->i2c_smbus_read_byte(address);
 
-        //We don't know what the 0x48 controller returns, so for now just assume it exists
+        /*-------------------------------------------------*\
+        | We don't know what the 0x48 controller returns,   |
+        | so for now just assume it exists                  |
+        \*-------------------------------------------------*/
         if(address == 0x48)
         {
             pass = true;
@@ -79,31 +78,25 @@ bool TestForGigabyteRGBFusionGPUController(i2c_smbus_interface* bus, unsigned ch
     }
 
     return(pass);
+}
 
-}   /* TestForRGBFusionGPUController() */
-
-/******************************************************************************************\
-*                                                                                          *
-*   DetectRGBFusionGPUControllers                                                          *
-*                                                                                          *
-*       Detect GigabyteRGB Fusion controllers on the enumerated I2C busses at address 0x47.*
-*                                                                                          *
-*           bus - pointer to i2c_smbus_interface where RGB Fusion device is connected      *
-*           dev - I2C address of RGB Fusion device                                         *
-*                                                                                          *
-\******************************************************************************************/
-
-void DetectGigabyteRGBFusionGPUControllers(i2c_smbus_interface* bus, uint8_t i2c_addr, const std::string& name)
+DetectedControllers DetectGigabyteRGBFusionGPUControllers(i2c_smbus_interface* bus, uint8_t i2c_addr, const std::string& name)
 {
-    // Check for RGB Fusion controller
+    DetectedControllers detected_controllers;
+
+    /*-----------------------------------------------------*\
+    | Check for RGB Fusion controller                       |
+    \*-----------------------------------------------------*/
     if(TestForGigabyteRGBFusionGPUController(bus, i2c_addr))
     {
         RGBFusionGPUController*     controller     = new RGBFusionGPUController(bus, i2c_addr, name);
         RGBController_RGBFusionGPU* rgb_controller = new RGBController_RGBFusionGPU(controller);
 
-        ResourceManager::get()->RegisterRGBController(rgb_controller);
+        detected_controllers.push_back(rgb_controller);
     }
-}   /* DetectGigabyteRGBFusionGPUControllers() */
+
+    return(detected_controllers);
+}
 
 REGISTER_I2C_PCI_DETECTOR("Gigabyte GTX 1050 G1 Gaming",                             DetectGigabyteRGBFusionGPUControllers,  NVIDIA_VEN, NVIDIA_GTX1050_DEV,         GIGABYTE_SUB_VEN,   GIGABYTE_GTX1050_G1_GAMING_SUB_DEV,             0x47);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte GeForce GTX 1050 Ti G1 Gaming Rev A1",           DetectGigabyteRGBFusionGPUControllers,  NVIDIA_VEN, NVIDIA_GTX1050TI_DEV,       GIGABYTE_SUB_VEN,   GIGABYTE_GTX1050TI_G1_GAMING_SUB_DEV,           0x47);
@@ -189,4 +182,5 @@ REGISTER_I2C_PCI_DETECTOR("Gigabyte GeForce RTX 3090 Gaming OC",                
 REGISTER_I2C_PCI_DETECTOR("Gigabyte GeForce RTX 4060 Gaming OC",                     DetectGigabyteRGBFusionGPUControllers,  NVIDIA_VEN, NVIDIA_RTX4060_DEV,         GIGABYTE_SUB_VEN,   GIGABYTE_RTX4060_GAMING_OC_8G_SUB_DEV,          0x55);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte GeForce RTX 4060 Ti Gaming OC",                  DetectGigabyteRGBFusionGPUControllers,  NVIDIA_VEN, NVIDIA_RTX4060TI_DEV,       GIGABYTE_SUB_VEN,   GIGABYTE_RTX4060TI_GAMING_OC_8G_SUB_DEV,        0x71);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte GeForce RTX 4060 Ti Gaming OC",                  DetectGigabyteRGBFusionGPUControllers,  NVIDIA_VEN, NVIDIA_RTX4060TI_16G_DEV,   GIGABYTE_SUB_VEN,   GIGABYTE_RTX4060TI_GAMING_OC_16G_SUB_DEV,       0x71);
+REGISTER_I2C_PCI_DETECTOR("Gigabyte GeForce RTX 4060 Ti AERO OC",                    DetectGigabyteRGBFusionGPUControllers,  NVIDIA_VEN, NVIDIA_RTX4060TI_DEV,       GIGABYTE_SUB_VEN,   GIGABYTE_RTX4060TI_AERO_OC_16G_SUB_DEV,         0x71);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte GeForce RTX 4070 Ti SUPER EAGLE OC",             DetectGigabyteRGBFusionGPUControllers,  NVIDIA_VEN, NVIDIA_RTX4070TIS_DEV,      GIGABYTE_SUB_VEN,   GIGABYTE_RTX4070TIS_EAGLE_OC_16G_SUB_DEV,       0x71);

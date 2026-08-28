@@ -15,11 +15,12 @@
 #include <string>
 #include <hidapi.h>
 #include "RGBController.h"
-#include "SteelSeriesGeneric.h"
+#include "SteelSeriesDevices.h"
 #include "SteelSeriesMouseController.h"
 
 #define STEELSERIES_AEROX3_WIRELESS_NAME                    "SteelSeries Aerox 3 Wireless (2.4 GHz wireless mode)"
 #define STEELSERIES_AEROX3_WIRELESS_WIRED_NAME              "SteelSeries Aerox 3 Wireless (wired mode)"
+#define STEELSERIES_AEROX3_GEN2_WIRELESS_NAME               "SteelSeries Aerox 3 Wireless Gen 2 (2.4 GHz wireless mode)"
 #define STEELSERIES_AEROX5_WIRELESS_NAME                    "SteelSeries Aerox 5 Wireless (2.4 GHz wireless mode)"
 #define STEELSERIES_AEROX5_WIRELESS_WIRED_NAME              "SteelSeries Aerox 5 Wireless (wired mode)"
 #define STEELSERIES_AEROX5_DESTINY_WIRELESS_NAME            "SteelSeries Aerox 5 Wireless Destiny 2 Edition (2.4 GHz wireless mode)"

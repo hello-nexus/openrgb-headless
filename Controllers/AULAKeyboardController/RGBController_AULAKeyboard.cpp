@@ -143,17 +143,6 @@ RGBController_AULAKeyboard::RGBController_AULAKeyboard(AULAKeyboardController* c
 
 RGBController_AULAKeyboard::~RGBController_AULAKeyboard()
 {
-    /*---------------------------------------------------------*\
-    | Delete the matrix map                                     |
-    \*---------------------------------------------------------*/
-    for(unsigned int zone_index = 0; zone_index < zones.size(); zone_index++)
-    {
-        if(zones[zone_index].matrix_map != NULL)
-        {
-            delete zones[zone_index].matrix_map;
-        }
-    }
-
     delete controller;
 }
 
@@ -166,10 +155,7 @@ void RGBController_AULAKeyboard::SetupZones()
     new_zone.leds_min           = AULA_KB_LED_COUNT;
     new_zone.leds_max           = AULA_KB_LED_COUNT;
     new_zone.leds_count         = AULA_KB_LED_COUNT;
-    new_zone.matrix_map         = new matrix_map_type;
-    new_zone.matrix_map->height = 6;
-    new_zone.matrix_map->width  = 15;
-    new_zone.matrix_map->map    = (unsigned int *)&matrix_map;
+    new_zone.matrix_map.Set(6, 15, (unsigned int *)&matrix_map);
 
     zones.push_back(new_zone);
 

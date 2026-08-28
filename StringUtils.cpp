@@ -22,6 +22,7 @@
 #include <cctype>
 #include <codecvt>
 #include <locale>
+#include <regex>
 #include <string>
 #include "StringUtils.h"
 
@@ -89,6 +90,13 @@ std::string StringUtils::wstring_to_string(const std::wstring wstring)
     return(converter.to_bytes(wstring));
 }
 
+std::wstring StringUtils::string_to_wstring(const std::string input)
+{
+    std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
+
+    return(converter.from_bytes(input));
+}
+
 std::string StringUtils::u16string_to_string(const std::u16string wstring)
 {
     std::wstring_convert<std::codecvt_utf8_utf16<char16_t>,char16_t> converter;
@@ -111,6 +119,34 @@ std::string StringUtils::u32int_to_hexString(unsigned int value)
     char hex_str[20] = {0};
     snprintf(hex_str, sizeof(hex_str), "%X", value);
     return std::string(hex_str);
+}
+
+std::string StringUtils::make_filename(std::string input)
+{
+    /*-----------------------------------------------------*\
+    | Replace : characters with - characters                |
+    \*-----------------------------------------------------*/
+    input = std::regex_replace(input, std::regex(":"), "-");
+
+    /*-----------------------------------------------------*\
+    | Remove all other characters                           |
+    \*-----------------------------------------------------*/
+    input = std::regex_replace(input, std::regex("[#%&\\{\\}\\\\<>\\*\\?/!`';@+|=]"), "");
+
+    /*-----------------------------------------------------*\
+    | Remove leading . characters                           |
+    \*-----------------------------------------------------*/
+    input = std::regex_replace(input, std::regex("^\\.+"), "");
+
+    /*-----------------------------------------------------*\
+    | Remove control characters                             |
+    \*-----------------------------------------------------*/
+    input = std::regex_replace(input, std::regex("[\\x00-\\x1F\\x7F]"), "");
+
+    /*-----------------------------------------------------*\
+    | Return complete string                                |
+    \*-----------------------------------------------------*/
+    return(input);
 }
 
 std::string StringUtils::normalize_hex_id(const std::string& id)

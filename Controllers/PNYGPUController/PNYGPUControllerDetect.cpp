@@ -9,35 +9,26 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
-#include "Detector.h"
-#include "PNYGPUController.h"
-#include "RGBController_PNYGPU.h"
+#include "DetectionManager.h"
 #include "i2c_smbus.h"
 #include "pci_ids.h"
+#include "PNYGPUController.h"
+#include "RGBController_PNYGPU.h"
 
-/******************************************************************************************\
- *                                                                                        *
- *   DetectPNYGPUControllers                                                              *
- *                                                                                        *
- *       Detect PNY GPU controllers on the enumerated I2C busses at address 0x49.         *
- *                                                                                        *
- *       bus - pointer to i2c_smbus_interface where PNY GPU device is connected           *
- *       dev - I2C address of PNY GPU device                                              *
- *                                                                                        *
-\******************************************************************************************/
-
-void DetectPNYGPUControllers(i2c_smbus_interface* bus, uint8_t i2c_addr, const std::string& name)
+DetectedControllers DetectPNYGPUControllers(i2c_smbus_interface* bus, uint8_t i2c_addr, const std::string& name)
 {
-    if(bus->port_id != 1)
+    DetectedControllers detected_controllers;
+
+    if(bus->info.port_id == 1)
     {
-        return;
+        PNYGPUController*     controller        = new PNYGPUController(bus, i2c_addr, name);
+        RGBController_PNYGPU* rgb_controller    = new RGBController_PNYGPU(controller);
+
+        detected_controllers.push_back(rgb_controller);
     }
 
-    PNYGPUController*     controller        = new PNYGPUController(bus, i2c_addr, name);
-    RGBController_PNYGPU* rgb_controller    = new RGBController_PNYGPU(controller);
-
-    ResourceManager::get()->RegisterRGBController(rgb_controller);
-} /* DetectPNYGPUControllers() */
+    return(detected_controllers);
+}
 
 REGISTER_I2C_PCI_DETECTOR("PNY GeForce RTX 2060 XLR8 OC EDITION",       DetectPNYGPUControllers,    NVIDIA_VEN, NVIDIA_RTX2060_TU104_DEV,   PNY_SUB_VEN,    PNY_RTX_2060_XLR8_OC_SUB_DEV,               0x49);
 REGISTER_I2C_PCI_DETECTOR("PNY GeForce RTX 3060 XLR8 Revel EPIC-X",     DetectPNYGPUControllers,    NVIDIA_VEN, NVIDIA_RTX3060_DEV,         PNY_SUB_VEN,    PNY_RTX_3060_XLR8_REVEL_EPIC_X_SUB_DEV,     0x49);
@@ -66,6 +57,7 @@ REGISTER_I2C_PCI_DETECTOR("Palit GeForce RTX 3080 Ti",                  DetectPN
 REGISTER_I2C_PCI_DETECTOR("Palit GeForce RTX 3080 Ti Gamerock",         DetectPNYGPUControllers,    NVIDIA_VEN, NVIDIA_RTX3080TI_DEV,       PALIT_SUB_VEN,  PALIT_RTX3080TI_GAMEROCK_SUB_DEV,           0x49);
 REGISTER_I2C_PCI_DETECTOR("Palit GeForce RTX 3090",                     DetectPNYGPUControllers,    NVIDIA_VEN, NVIDIA_RTX3090_DEV,         PALIT_SUB_VEN,  PALIT_RTX3090_SUB_DEV,                      0x49);
 REGISTER_I2C_PCI_DETECTOR("Palit GeForce RTX 3090 Gamerock",            DetectPNYGPUControllers,    NVIDIA_VEN, NVIDIA_RTX3090_DEV,         PALIT_SUB_VEN,  PALIT_RTX3090_GAMEROCK_SUB_DEV,             0x49);
+REGISTER_I2C_PCI_DETECTOR("Palit GeForce RTX 3090 Ti Gamerock",         DetectPNYGPUControllers,    NVIDIA_VEN, NVIDIA_RTX3090TI_DEV,       PALIT_SUB_VEN,  PALIT_RTX3090TI_GAMEROCK_SUB_DEV,           0x49);
 REGISTER_I2C_PCI_DETECTOR("Palit GeForce RTX 4070 Ti",                  DetectPNYGPUControllers,    NVIDIA_VEN, NVIDIA_RTX4070TI_DEV,       PALIT_SUB_VEN,  PALIT_RTX4070TI_SUB_DEV,                    0x49);
 REGISTER_I2C_PCI_DETECTOR("Palit GeForce RTX 4070 Ti Gamerock",         DetectPNYGPUControllers,    NVIDIA_VEN, NVIDIA_RTX4070TI_DEV,       PALIT_SUB_VEN,  PALIT_RTX4070TI_GAMEROCK_SUB_DEV,           0x49);
 REGISTER_I2C_PCI_DETECTOR("Palit GeForce RTX 4070 Ti SUPER GamingPro",  DetectPNYGPUControllers,    NVIDIA_VEN, NVIDIA_RTX4070TIS_DEV,      PALIT_SUB_VEN,  PALIT_RTX4080_GAMINGPRO_SUB_DEV,            0x49);

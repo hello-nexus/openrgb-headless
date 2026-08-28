@@ -8,28 +8,19 @@
 \*---------------------------------------------------------*/
 
 #include <stdio.h>
-#include "Detector.h"
+#include "DetectionManager.h"
 #include "GigabyteRGBFusion2GPUController.h"
-#include "LogManager.h"
-#include "RGBController_GigabyteRGBFusion2GPU.h"
 #include "i2c_amd_gpu.h"
 #include "i2c_smbus.h"
+#include "LogManager.h"
 #include "pci_ids.h"
+#include "RGBController_GigabyteRGBFusion2GPU.h"
 
 #define GIGABYTEGPU_CONTROLLER_NAME2    "Gigabyte RGB Fusion2 GPU"
 
-/******************************************************************************************\
-*                                                                                          *
-*   TestForGigabyteRGBFusion2GPUController                                                 *
-*                                                                                          *
-*       Tests the given address to see if an RGB Fusion2 controller exists there.  First   *
-*       does a quick write to test for a response                                          *
-*                                                                                          *
-\******************************************************************************************/
-
 bool TestForGigabyteRGBFusion2GPUController(i2c_smbus_interface* bus, unsigned char address)
 {
-    if(bus->pci_vendor == AMD_GPU_VEN && !is_amd_gpu_i2c_bus(bus))
+    if(bus->info.pci_vendor == AMD_GPU_VEN && !is_amd_gpu_i2c_bus(bus))
     {
         return false;
     }
@@ -79,35 +70,27 @@ bool TestForGigabyteRGBFusion2GPUController(i2c_smbus_interface* bus, unsigned c
     }
 
     return(pass);
-}   /* TestForRGBFusion2GPUController() */
+}
 
-/*******************************************************************************************\
-*                                                                                           *
-*   DetectRGBFusion2GPUControllers                                                          *
-*                                                                                           *
-*       Detect GigabyteRGB Fusion2 controllers on the enumerated I2C busses at address 0x70.*
-*                                                                                           *
-*           bus - pointer to i2c_smbus_interface where RGB Fusion2 device is connected      *
-*           dev - I2C address of RGB Fusion2 device                                         *
-*                                                                                           *
-\*******************************************************************************************/
-
-void DetectGigabyteRGBFusion2GPUControllers(i2c_smbus_interface* bus, uint8_t i2c_addr, const std::string& name)
+DetectedControllers DetectGigabyteRGBFusion2GPUControllers(i2c_smbus_interface* bus, uint8_t i2c_addr, const std::string& name)
 {
+    DetectedControllers detected_controllers;
+
     // Check for RGB Fusion2 controller
     if(TestForGigabyteRGBFusion2GPUController(bus, i2c_addr))
     {
         RGBFusion2GPUController*     controller     = new RGBFusion2GPUController(bus, i2c_addr, name);
         RGBController_RGBFusion2GPU* rgb_controller = new RGBController_RGBFusion2GPU(controller);
 
-        ResourceManager::get()->RegisterRGBController(rgb_controller);
+        detected_controllers.push_back(rgb_controller);
     }
-}   /* DetectGigabyteRGBFusion2GPUControllers() */
 
-/*-----------------------------------------*\
-|  Nvidia GPUs                              |
-\*-----------------------------------------*/
+    return(detected_controllers);
+}
 
+/*---------------------------------------------------------*\
+|  Nvidia GPUs                                              |
+\*---------------------------------------------------------*/
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2060 SUPER",                     DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX2060S_OC_DEV,     GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX2060S_V1_SUB_DEV_H,           0x50);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2060 SUPER",                     DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX2060S_OC_DEV,     GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX2060S_V1_SUB_DEV_P,           0x50);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2070",                           DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX2070_OC_DEV,      GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX2070_SUB_DEV,                 0x50);
@@ -125,6 +108,7 @@ REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2080 SUPER Waterforce WB",
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2080 SUPER Waterforce WB",       DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX2080S_DEV,        GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX2080S_WATERFORCE_WB_SUB_DEV_P,0x51);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2080 SUPER Waterforce",          DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX2080S_DEV,        GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX2080S_WATERFORCE_SUB_DEV_H,   0x08);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2080 SUPER Waterforce",          DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX2080S_DEV,        GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX2080S_WATERFORCE_SUB_DEV_P,   0x08);
+REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2080 Ti 11G",                    DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX2080TI_A_DEV,     GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX2080TI_11G_SUB_DEV_H,         0x50);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2080 Ti XTREME",                 DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX2080TI_A_DEV,     GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX2080TI_EXTREME_SUB_DEV_H,     0x50);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 2080 Ti XTREME",                 DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX2080TI_A_DEV,     GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX2080TI_EXTREME_SUB_DEV_P,     0x50);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 3060 ELITE",                     DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX3060_GA104_DEV,   GIGABYTE_SUB_VEN,   GIGABYTE_RTX3060_ELITE_12GB_SUB_DEV,            0x70);
@@ -181,13 +165,13 @@ REGISTER_I2C_PCI_DETECTOR("Gigabyte GeForce RTX 5090 GAMING OC",                
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 5090 MASTER",                    DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX5090_DEV,         GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX5090_MASTER_32G_SUB_DEV,      0x71);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS GeForce RTX 5090 MASTER ICE",                DetectGigabyteRGBFusion2GPUControllers, NVIDIA_VEN, NVIDIA_RTX5090_DEV,         GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RTX5090_MASTER_ICE_32G_SUB_DEV,  0x71);
 
-/*-----------------------------------------*\
-|  AMD GPUs                                 |
-\*-----------------------------------------*/
-
+/*---------------------------------------------------------*\
+|  AMD GPUs                                                 |
+\*---------------------------------------------------------*/
 REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 7600 GAMING OC 8G",                      DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI33_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_RX7600_GAMING_OC_8G_SUB_DEV,           0x55);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 7600 GAMING OC 8G",                      DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI33_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_RX7600_GAMING_OC_8G_SUB_DEV2,          0x55);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 7600 XT GAMING OC 16G",                  DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI33_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_RX7600XT_GAMING_OC_16G_SUB_DEV,        0x55);
+REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 6700 XT EAGLE 12G",                      DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI22_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_RX6700XT_EAGLE_12G_SUB_DEV,            0x63);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 6700 XT GAMING OC 12G",                  DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI22_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_RX6700XT_GAMING_OC_12G_SUB_DEV,        0x62);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 6800 XT GAMING OC",                      DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI21_DEV1,           GIGABYTE_SUB_VEN,   GIGABYTE_RX6800XT_GAMING_OC_SUB_DEV,            0x62);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 6900 XT GAMING OC",                      DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI21_DEV1,           GIGABYTE_SUB_VEN,   GIGABYTE_RX6900XT_GAMING_OC_SUB_DEV,            0x62);
@@ -198,6 +182,7 @@ REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 7900 XT GAMING OC",               
 REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 7900 XTX GAMING OC",                     DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI31_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_RX7900XTX_GAMING_OC_24G_SUB_DEV,       0x62);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS Radeon RX 7900 XTX ELITE 24G",               DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI31_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RX7900XTX_ELITE_24G_SUB_DEV,     0x71);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS RX 6750 XT ELITE 12G",                       DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI22_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RX_6750_XT_ELITE_12G_SUB_DEV,    0x70);
+REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS RX 6900 XT MASTER rev 2.0",                 DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI21_DEV2,           GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RX6900XT_MASTER_SUB_DEV,          0x70);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS RX 6900 XT EXTREME WATERFORCE WB",           DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI21_DEV2,           GIGABYTE_SUB_VEN,   GIGABYTE_RX6900XT_XTREME_WATERFORCE_WB_SUB_DEV, 0x70);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte AORUS Radeon RX 9070 XT Elite",                    DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI48_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_AORUS_RX9070XT_ELITE_16G_SUB_DEV,      0x73);
 REGISTER_I2C_PCI_DETECTOR("Gigabyte Radeon RX 9070 XT GAMING OC",                      DetectGigabyteRGBFusion2GPUControllers, AMD_GPU_VEN, AMD_NAVI48_DEV,            GIGABYTE_SUB_VEN,   GIGABYTE_RX9070XT_GAMING_OC_16G_SUB_DEV,        0x73);

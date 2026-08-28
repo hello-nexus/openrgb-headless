@@ -10,18 +10,18 @@
 \*---------------------------------------------------------*/
 
 #include <libusb.h>
-#include "Detector.h"
+#include "DetectionManager.h"
 #include "CorsairHydroController.h"
 #include "RGBController_CorsairHydro.h"
 
-/*-----------------------------------------------------*\
-| Corsair vendor ID                                     |
-\*-----------------------------------------------------*/
+/*---------------------------------------------------------*\
+| Corsair vendor ID                                         |
+\*---------------------------------------------------------*/
 #define CORSAIR_VID                     0x1B1C
 
-/*-----------------------------------------------------*\
-| Keyboard Hydro Series product IDs                     |
-\*-----------------------------------------------------*/
+/*---------------------------------------------------------*\
+| Keyboard Hydro Series product IDs                         |
+\*---------------------------------------------------------*/
 #define CORSAIR_H115I_PRO_RGB_PID       0x0C13
 #define CORSAIR_H100I_PRO_RGB_PID       0x0C15
 #define CORSAIR_H150I_PRO_RGB_PID       0x0C12
@@ -46,16 +46,10 @@ static const corsair_hydro_device device_list[] =
     { CORSAIR_VID,          CORSAIR_H150I_PRO_RGB_PID,          0,      "Corsair H150i PRO RGB"             },
 };
 
-/******************************************************************************************\
-*                                                                                          *
-*   DetectCorsairHydroControllers                                                          *
-*                                                                                          *
-*       Tests the USB address to see if a Corsair RGB Cooler controller exists there.      *
-*                                                                                          *
-\******************************************************************************************/
-
-void DetectCorsairHydroControllers()
+DetectedControllers DetectCorsairHydroControllers()
 {
+    DetectedControllers detected_controllers;
+
     libusb_init(NULL);
 
     #ifdef _WIN32
@@ -75,12 +69,17 @@ void DetectCorsairHydroControllers()
             CorsairHydroController*     controller     = new CorsairHydroController(dev, device_list[device_idx].name);
             RGBController_CorsairHydro* rgb_controller = new RGBController_CorsairHydro(controller);
 
-            ResourceManager::get()->RegisterRGBController(rgb_controller);
+            detected_controllers.push_back(rgb_controller);
         }
     }
-}   /* DetectCorsairHydroControllers() */
+
+    return(detected_controllers);
+}
 
 REGISTER_DETECTOR("Corsair Hydro Series", DetectCorsairHydroControllers);
+REGISTER_CUSTOM_UDEV_RULE(corsair_hydro_1, "Corsair Hydro Series", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"1b1c\", ATTRS{idProduct}==\"0c12\", TAG+=\"uaccess\", TAG+=\"Corsair_Hydro_Series\"");
+REGISTER_CUSTOM_UDEV_RULE(corsair_hydro_2, "Corsair Hydro Series", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"1b1c\", ATTRS{idProduct}==\"0c13\", TAG+=\"uaccess\", TAG+=\"Corsair_Hydro_Series\"");
+REGISTER_CUSTOM_UDEV_RULE(corsair_hydro_3, "Corsair Hydro Series", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"1b1c\", ATTRS{idProduct}==\"0c15\", TAG+=\"uaccess\", TAG+=\"Corsair_Hydro_Series\"");
 /*---------------------------------------------------------------------------------------------------------*\
 | Entries for dynamic UDEV rules                                                                            |
 |                                                                                                           |

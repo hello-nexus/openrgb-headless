@@ -98,6 +98,8 @@ RGBController_SayoDevice::RGBController_SayoDevice(SayoDeviceController* control
 
 RGBController_SayoDevice::~RGBController_SayoDevice()
 {
+    Shutdown();
+
     delete controller;
 }
 
@@ -111,7 +113,6 @@ void RGBController_SayoDevice::SetupZones()
     zone.leds_count = led_count;
     zone.leds_min   = led_count;
     zone.leds_max   = led_count;
-    zone.matrix_map = NULL;
 
     zones.clear();
     zones.push_back(zone);
@@ -129,13 +130,6 @@ void RGBController_SayoDevice::SetupZones()
     SetupColors();
 }
 
-void RGBController_SayoDevice::ResizeZone(int /*zone*/, int /*new_size*/)
-{
-    /*-----------------------------------------------------*\
-    | This device does not support resizing zones           |
-    \*-----------------------------------------------------*/
-}
-
 void RGBController_SayoDevice::DeviceUpdateLEDs()
 {
     unsigned int hw_mode = (modes[active_mode].value == SAYO_MODE_DIRECT) ? SAYO_MODE_STATIC : modes[active_mode].value;
@@ -145,12 +139,12 @@ void RGBController_SayoDevice::DeviceUpdateLEDs()
     controller->SetMode(hw_mode, speed, colors[0], random);
 }
 
-void RGBController_SayoDevice::UpdateZoneLEDs(int /*zone*/)
+void RGBController_SayoDevice::DeviceUpdateZoneLEDs(int /*zone*/)
 {
     DeviceUpdateLEDs();
 }
 
-void RGBController_SayoDevice::UpdateSingleLED(int /*led*/)
+void RGBController_SayoDevice::DeviceUpdateSingleLED(int /*led*/)
 {
     DeviceUpdateLEDs();
 }

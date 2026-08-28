@@ -9,11 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
-#include <chrono>
-#include <thread>
 #include "RGBController_MSIMonitor.h"
-
-using namespace std::chrono_literals;
 
 /**------------------------------------------------------------------*\
     @name MSIMonitor
@@ -112,9 +108,7 @@ RGBController_MSIMonitor::RGBController_MSIMonitor(MSIMonitorController* control
 
 RGBController_MSIMonitor::~RGBController_MSIMonitor()
 {
-    keepalive_thread_run = 0;
-    keepalive_thread->join();
-    delete keepalive_thread;
+    Shutdown();
 
     delete controller;
 }
@@ -128,7 +122,6 @@ void RGBController_MSIMonitor::SetupZones()
     new_zone.leds_min   = 9;
     new_zone.leds_max   = 9;
     new_zone.leds_count = 9;
-    new_zone.matrix_map = nullptr;
 
     zones.emplace_back(new_zone);
 
@@ -142,25 +135,17 @@ void RGBController_MSIMonitor::SetupZones()
     SetupColors();
 }
 
-void RGBController_MSIMonitor::ResizeZone(int /*zone*/, int /*new_size*/)
-{
-    /*---------------------------------------------------------*\
-    | This device does not support resizing zones               |
-    \*---------------------------------------------------------*/
-}
-
 void RGBController_MSIMonitor::DeviceUpdateLEDs()
 {
-    last_update_time = std::chrono::steady_clock::now();
     controller->Set(modes[active_mode].value, colors, active_mode == 0 ? 0x00 : 0x01);
 }
 
-void RGBController_MSIMonitor::UpdateZoneLEDs(int /*zone*/)
+void RGBController_MSIMonitor::DeviceUpdateZoneLEDs(int /*zone*/)
 {
     DeviceUpdateLEDs();
 }
 
-void RGBController_MSIMonitor::UpdateSingleLED(int /*led*/)
+void RGBController_MSIMonitor::DeviceUpdateSingleLED(int /*led*/)
 {
     DeviceUpdateLEDs();
 }

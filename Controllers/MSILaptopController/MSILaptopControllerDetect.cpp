@@ -7,7 +7,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
-#include "Detector.h"
+#include "DetectionManager.h"
 #include "RGBControllerKeyNames.h"
 #include "RGBController_MSILaptop.h"
 #include "MSILaptopController.h"
@@ -165,14 +165,30 @@ static const MSILaptopModel msi_laptop_models[] =
     {
         "Micro-Star International Co., Ltd.",
         "Raider A18 HX A9WJG",
-        
+
         /* Keyboard layout */
         msi_raider_a18_klc_leds,
         MSI_LAPTOP_ARRAY_SIZE(msi_raider_a18_klc_leds),
         MSI_LAPTOP_KLC_MATRIX_HEIGHT,
         MSI_LAPTOP_KLC_MATRIX_WIDTH,
         (const unsigned int*)msi_raider_a18_klc_matrix_map,
-        
+
+        /* Lightbar layout */
+        msi_raider_a18_alc_leds,
+        MSI_LAPTOP_ARRAY_SIZE(msi_raider_a18_alc_leds),
+        MSI_LAPTOP_ALC_LIGHTBAR_LEDS,
+    },
+    {
+        "Micro-Star International Co., Ltd.",
+        "Raider 18 HX AI A2XWIG",
+
+        /* Keyboard layout (shares the Raider 18 chassis / keyboard) */
+        msi_raider_a18_klc_leds,
+        MSI_LAPTOP_ARRAY_SIZE(msi_raider_a18_klc_leds),
+        MSI_LAPTOP_KLC_MATRIX_HEIGHT,
+        MSI_LAPTOP_KLC_MATRIX_WIDTH,
+        (const unsigned int*)msi_raider_a18_klc_matrix_map,
+
         /* Lightbar layout */
         msi_raider_a18_alc_leds,
         MSI_LAPTOP_ARRAY_SIZE(msi_raider_a18_alc_leds),
@@ -212,38 +228,40 @@ static const MSILaptopModel* GetMSILaptopModelDMI()
     return nullptr;
 }
 
-void DetectMSILaptop(hid_device_info* info, const std::string& name)
+DetectedControllers DetectMSILaptop(hid_device_info* info, const std::string& name)
 {
-    const MSILaptopModel* model = GetMSILaptopModelDMI();
-    if(!model)
+    DetectedControllers     detected_controllers;
+    const MSILaptopModel*   model = GetMSILaptopModelDMI();
+
+    if(model)
     {
-        return;
+        msi_laptop_device device_type;
+
+        if(info->product_id == STEELSERIES_MSI_RAIDER_A18_KLC_PID)
+        {
+            device_type = MSI_LAPTOP_KLC;
+        }
+        else if(info->product_id == STEELSERIES_MSI_RAIDER_A18_ALC_PID)
+        {
+            device_type = MSI_LAPTOP_ALC;
+        }
+        else
+        {
+            return(detected_controllers);
+        }
+
+        hid_device* dev = hid_open_path(info->path);
+
+        if(dev)
+        {
+            MSILaptopController*     controller     = new MSILaptopController(dev, info->path, name, device_type);
+            RGBController_MSILaptop* rgb_controller = new RGBController_MSILaptop(controller, model);
+
+            detected_controllers.push_back(rgb_controller);
+        }
     }
 
-    msi_laptop_device device_type;
-
-    if(info->product_id == STEELSERIES_MSI_RAIDER_A18_KLC_PID)
-    {
-        device_type = MSI_LAPTOP_KLC;
-    }
-    else if(info->product_id == STEELSERIES_MSI_RAIDER_A18_ALC_PID)
-    {
-        device_type = MSI_LAPTOP_ALC;
-    }
-    else
-    {
-        return;
-    }
-
-    hid_device* dev = hid_open_path(info->path);
-
-    if(dev)
-    {
-        MSILaptopController*     controller     = new MSILaptopController(dev, info->path, name, device_type);
-        RGBController_MSILaptop* rgb_controller = new RGBController_MSILaptop(controller, model);
-
-        ResourceManager::get()->RegisterRGBController(rgb_controller);
-    }
+    return(detected_controllers);
 }
 
 REGISTER_HID_DETECTOR("MSI Laptop Keyboard", DetectMSILaptop, STEELSERIES_VID, STEELSERIES_MSI_RAIDER_A18_KLC_PID);

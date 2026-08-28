@@ -39,6 +39,7 @@ const RGBController_ZotacBlackwellGPU::DeviceZoneConfig RGBController_ZotacBlack
 {
     { NVIDIA_RTX5080_DEV, ZOTAC_RTX5080_AMP_EXTREME_SUB_DEV, { "Logo", "Side Bar", "Infinity Mirror" }, 3 },
     { NVIDIA_RTX5090_DEV, ZOTAC_RTX5090_SOLID_OC_SUB_DEV,     { "ZOTAC Gaming", "Logo" },                2 },
+    { NVIDIA_RTX5090D_DEV, ZOTAC_RTX5090D_SOLID_OC_SUB_DEV,   { "ZOTAC Gaming", "Logo" },                2 },
     { 0, 0, { nullptr }, 0 }
 };
 
@@ -287,6 +288,8 @@ RGBController_ZotacBlackwellGPU::RGBController_ZotacBlackwellGPU(ZotacBlackwellG
 
 RGBController_ZotacBlackwellGPU::~RGBController_ZotacBlackwellGPU()
 {
+    Shutdown();
+
     delete controller;
 }
 
@@ -305,7 +308,6 @@ void RGBController_ZotacBlackwellGPU::SetupZones()
         new_zone.leds_min   = 1;
         new_zone.leds_max   = 1;
         new_zone.leds_count = 1;
-        new_zone.matrix_map = NULL;
         zones.push_back(new_zone);
 
         led new_led;
@@ -316,29 +318,12 @@ void RGBController_ZotacBlackwellGPU::SetupZones()
     SetupColors();
 }
 
-void RGBController_ZotacBlackwellGPU::ResizeZone(int /*zone*/, int /*new_size*/)
-{
-    /*---------------------------------------------------------*\
-    | This device does not support resizing zones               |
-    \*---------------------------------------------------------*/
-}
-
 void RGBController_ZotacBlackwellGPU::DeviceUpdateLEDs()
 {
     DeviceUpdateMode();
 }
 
-void RGBController_ZotacBlackwellGPU::UpdateZoneLEDs(int zone)
-{
-    DeviceUpdateZone(zone);
-}
-
-void RGBController_ZotacBlackwellGPU::UpdateSingleLED(int led)
-{
-    DeviceUpdateZone(led);
-}
-
-void RGBController_ZotacBlackwellGPU::DeviceUpdateZone(int zone)
+void RGBController_ZotacBlackwellGPU::DeviceUpdateZoneLEDs(int zone)
 {
     unsigned int mode_val   = modes[active_mode].value;
     unsigned int brightness = modes[active_mode].brightness;
@@ -374,10 +359,15 @@ void RGBController_ZotacBlackwellGPU::DeviceUpdateZone(int zone)
     controller->Commit();
 }
 
+void RGBController_ZotacBlackwellGPU::DeviceUpdateSingleLED(int led)
+{
+    DeviceUpdateZoneLEDs(led);
+}
+
 void RGBController_ZotacBlackwellGPU::DeviceUpdateMode()
 {
     for(unsigned int zone_idx = 0; zone_idx < zones.size(); zone_idx++)
     {
-        DeviceUpdateZone(zone_idx);
+        DeviceUpdateZoneLEDs(zone_idx);
     }
 }

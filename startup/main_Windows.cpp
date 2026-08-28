@@ -10,6 +10,8 @@
 \*---------------------------------------------------------*/
 
 #include <algorithm>
+#include <condition_variable>
+#include <mutex>
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
@@ -19,6 +21,7 @@
 #include "startup.h"
 #include "LogManager.h"
 #include "NetworkServer.h"
+#include "DetectionManager.h"
 #include "ResourceManager.h"
 #include "StringUtils.h"
 
@@ -37,6 +40,8 @@ static SERVICE_STATUS        service_status;
 
 static bool                  started_as_service;
 static volatile bool         service_stop_requested;
+static std::mutex            service_stop_mutex;
+static std::condition_variable service_stop_cv;
 static bool                  have_console;
 
 static std::mutex            service_status_mutex;
@@ -49,43 +54,50 @@ static int                   detection_pass;
 static unsigned int          lastpercent                = 101;
 
 /*---------------------------------------------------------*\
-| ServiceStartupProgress                                    |
+| ServiceResourceManagerCallback                            |
 |                                                           |
 |   Report detection progress when running as a service     |
 \*---------------------------------------------------------*/
-static void ServiceStartupProgress(void*)
+static void ServiceResourceManagerCallback(void *, unsigned int update_reason)
 {
-    unsigned int percent = ResourceManager::get()->GetDetectionPercent();
-    unsigned int estimate;
-
-    percent = std::clamp(percent, 0u, 100u);
-
-    if(lastpercent > percent)
+    switch(update_reason)
     {
-        detection_pass += 1;
+        case RESOURCEMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED:
+            {
+                unsigned int percent = ResourceManager::get()->GetDetectionPercent();
+                unsigned int estimate;
+
+                percent = std::clamp(percent, 0u, 100u);
+
+                if(lastpercent > percent)
+                {
+                    detection_pass += 1;
+                }
+
+                lastpercent = percent;
+
+                switch(detection_pass)
+                {
+                    case 0:
+                        percent = 0;
+                        break;
+                    case 1:
+                        percent = percent * 4 / 5;
+                        break;
+                    case 2:
+                        percent = percent / 5 + 80;
+                        break;
+                    default:
+                        percent = 100;
+                        break;
+                }
+
+                estimate = (100 - percent) / 5 + 10;
+
+                ReportServiceStatus(SERVICE_START_PENDING, NO_ERROR, estimate * 1000);
+            }
+            break;
     }
-
-    lastpercent = percent;
-
-    switch(detection_pass)
-    {
-        case 0:
-            percent = 0;
-            break;
-        case 1:
-            percent = percent * 4 / 5;
-            break;
-        case 2:
-            percent = percent / 5 + 80;
-            break;
-        default:
-            percent = 100;
-            break;
-    }
-
-    estimate = (100 - percent) / 5 + 10;
-
-    ReportServiceStatus(SERVICE_START_PENDING, NO_ERROR, estimate * 1000);
 }
 
 /*---------------------------------------------------------*\
@@ -214,6 +226,7 @@ static DWORD WINAPI ServiceControlHandler(DWORD dwControl, DWORD dwEventType, LP
         case SERVICE_CONTROL_PRESHUTDOWN:
             ReportServiceStatus(SERVICE_STOP_PENDING, NO_ERROR, 10000);
             service_stop_requested = true;
+            service_stop_cv.notify_one();
             break;
 
         default:
@@ -508,13 +521,15 @@ void InitializeTimerResolutionThreadFunction()
 \*---------------------------------------------------------*/
 static void WaitWhileServerOnline(NetworkServer* srv)
 {
+    std::unique_lock<std::mutex> lock(service_stop_mutex);
     while(srv->GetOnline())
     {
-        std::this_thread::sleep_for(1s);
         if(service_stop_requested)
         {
             srv->StopServer();
+            break;
         }
+        service_stop_cv.wait_for(lock, 1s);
     };
 }
 
@@ -577,7 +592,8 @@ static int common_main(int argc, char* argv[])
         !(ret_flags & RET_FLAG_NO_AUTO_CONNECT),
         !(ret_flags & RET_FLAG_NO_DETECT),
         ret_flags & RET_FLAG_START_SERVER,
-        ret_flags & RET_FLAG_CLI_POST_DETECTION);
+        ret_flags & RET_FLAG_CLI_POST_DETECTION,
+        ret_flags & RET_FLAG_START_GUI);
 
     /*-----------------------------------------------------*\
     | If running as a service, register the service startup |
@@ -586,7 +602,7 @@ static int common_main(int argc, char* argv[])
     \*-----------------------------------------------------*/
     if(started_as_service)
     {
-        ResourceManager::get()->RegisterDetectionProgressCallback(ServiceStartupProgress, NULL);
+        ResourceManager::get()->RegisterResourceManagerCallback(ServiceResourceManagerCallback, NULL);
     }
 
     /*-----------------------------------------------------*\
@@ -602,7 +618,7 @@ static int common_main(int argc, char* argv[])
     \*-----------------------------------------------------*/
     if(started_as_service)
     {
-        ResourceManager::get()->UnregisterDetectionProgressCallback(ServiceStartupProgress, NULL);
+        ResourceManager::get()->UnregisterResourceManagerCallback(ServiceResourceManagerCallback, NULL);
     }
 
     /*-----------------------------------------------------*\
@@ -623,9 +639,16 @@ static int common_main(int argc, char* argv[])
     }
 
     /*-----------------------------------------------------*\
-    | Perform ResourceManager cleanup before exiting        |
+    | Call ServiceShutdown to allow operations before       |
+    | controllers are closed and deleted. Only runs when    |
+    | running as a background service (headless server).    |
     \*-----------------------------------------------------*/
-    ResourceManager::get()->Cleanup();
+    ResourceManager::get()->ServiceShutdown();
+
+    /*-----------------------------------------------------*\
+    | Clean up detected devices so destructors can run.     |
+    \*-----------------------------------------------------*/
+    DetectionManager::get()->Cleanup();
 
     LOG_TRACE("OpenRGB finishing with exit code %d", exitval);
 

@@ -639,6 +639,71 @@ static const corsair_v2_device ironclaw_wireless_device =
 };
 
 /*-------------------------------------------------------------*\
+|  Corsair Ironclaw Wireless SE 1B1C:2B32                       |
+|                                                               |
+|  Zone "Logo"                                                  |
+|       Single                                                  |
+|                                                               |
+|  Zone "Scroll Wheel"                                          |
+|       Single                                                  |
+|                                                               |
+|  Zone "Buttons"                                               |
+|       Single                                                  |
+|                                                               |
+|  Zone "Side"                                                  |
+|       Linear                                                  |
+|       1 Row, 3 Columns                                        |
+\*-------------------------------------------------------------*/
+static const corsair_v2_zone ironclaw_se_logo_zone =
+{
+    "Logo",
+    ZONE_TYPE_SINGLE,
+    1,
+    1
+};
+
+static const corsair_v2_zone ironclaw_se_scroll_zone =
+{
+    "Scroll Wheel",
+    ZONE_TYPE_SINGLE,
+    1,
+    1
+};
+
+static const corsair_v2_zone ironclaw_se_button_zone =
+{
+    "Buttons",
+    ZONE_TYPE_SINGLE,
+    1,
+    1
+};
+
+static const corsair_v2_zone ironclaw_se_side_zone =
+{
+    "Side Zone",
+    ZONE_TYPE_LINEAR,
+    1,
+    3
+};
+
+static const corsair_v2_device ironclaw_wireless_se_device =
+{
+    CORSAIR_IRONCLAW_WIRELESS_SE_PID,
+    DEVICE_TYPE_MOUSE,
+    1,
+    6,
+    {
+        &ironclaw_se_logo_zone,
+        &ironclaw_se_scroll_zone,
+        &ironclaw_se_button_zone,
+        &ironclaw_se_side_zone,
+        nullptr,
+        nullptr
+    },
+    nullptr
+};
+
+/*-------------------------------------------------------------*\
 |  Corsair Katar Pro 1B1C:1B93                                  |
 |                                                               |
 |  Zone "Scroll Wheel"                                          |
@@ -1444,6 +1509,44 @@ static const corsair_v2_device m75_device =
 };
 
 /*-------------------------------------------------------------*\
+|  Corsair M75 Wireless 1B1C:1BF1                               |
+|                                                               |
+|  Reached through the Slipstream receiver 1B1C:1BDC, which     |
+|  reports the mouse PID 0x1BF1 once the write command is       |
+|  switched to the wireless ID.                                 |
+|                                                               |
+|  Zone "Logo"                                                  |
+|       Single                                                  |
+|                                                               |
+|  Zone "Bottom"                                                |
+|       Single                                                  |
+\*-------------------------------------------------------------*/
+static const corsair_v2_zone m75_wireless_bottom_zone =
+{
+    "Bottom",
+    ZONE_TYPE_SINGLE,
+    1,
+    1
+};
+
+static const corsair_v2_device m75_wireless_device =
+{
+    CORSAIR_M75_WIRELESS_PID,
+    DEVICE_TYPE_MOUSE,
+    1,
+    2,
+    {
+        &m75_logo_zone,
+        &m75_wireless_bottom_zone,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr
+    },
+    nullptr
+};
+
+/*-------------------------------------------------------------*\
 |  Corsair MM700 1B1C:1B9B                                      |
 |                                                               |
 |  Zone "Logo"                                                  |
@@ -1543,6 +1646,7 @@ const corsair_v2_device* corsair_v2_device_list_data[] =
     &dark_core_pro_se_device,
     &harpoon_wireless_device,
     &ironclaw_wireless_device,
+    &ironclaw_wireless_se_device,
     &katar_pro_device,
     &katar_pro_v2_device,
     &katar_pro_xt_device,
@@ -1550,6 +1654,7 @@ const corsair_v2_device* corsair_v2_device_list_data[] =
     &m65_rgb_ultra_wired_device,
     &m65_ultra_rgb_device,
     &m75_device,
+    &m75_wireless_device,
 
 /*-----------------------------------------------------------------*\
 |  MOUSEMATS                                                        |

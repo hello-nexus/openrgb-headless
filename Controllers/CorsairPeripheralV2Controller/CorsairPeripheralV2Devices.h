@@ -93,6 +93,8 @@ typedef struct
 #define CORSAIR_DARK_CORE_RGB_PRO_PID               0x1B7E
 #define CORSAIR_HARPOON_WIRELESS_PID                0x1B5E
 #define CORSAIR_IRONCLAW_WIRELESS_PID               0x1B4C
+#define CORSAIR_IRONCLAW_WIRELESS_SE_PID            0x2B32
+#define CORSAIR_SLIPSTREAM_IRONCLAW_SE_PID          0x2B00
 #define CORSAIR_KATAR_PRO_PID                       0x1B93
 #define CORSAIR_KATAR_PRO_V2_PID                    0x1BBA
 #define CORSAIR_KATAR_PRO_XT_PID                    0x1BAC
@@ -100,6 +102,8 @@ typedef struct
 #define CORSAIR_M65_RGB_ULTRA_WIRED_PID             0x1B9E
 #define CORSAIR_M65_RGB_ULTRA_WIRELESS_PID          0x1BB5
 #define CORSAIR_M75_GAMING_MOUSE_PID                0x1BF0
+#define CORSAIR_M75_WIRELESS_PID                    0x1BF1
+#define CORSAIR_SLIPSTREAM_M75_PID                  0x1BDC
 #define CORSAIR_SLIPSTREAM_WIRELESS_PID1            0x1BA6
 #define CORSAIR_SLIPSTREAM_WIRELESS_V2_PID1         0x1B66
 #define CORSAIR_SLIPSTREAM_WIRELESS_PID2            0x1B65

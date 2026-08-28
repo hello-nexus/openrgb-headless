@@ -11,7 +11,6 @@
 
 #include "SteelSeriesAeroxWirelessController.h"
 #include "LogManager.h"
-#include "SteelSeriesGeneric.h"
 
 SteelSeriesAeroxWirelessController::SteelSeriesAeroxWirelessController(hid_device* dev_handle, steelseries_type proto_type, const char* path, std::string dev_name) : SteelSeriesMouseController(dev_handle, proto_type, path, dev_name)
 {
@@ -22,6 +21,9 @@ SteelSeriesAeroxWirelessController::SteelSeriesAeroxWirelessController(hid_devic
             break;
         case AEROX_3_WIRELESS_WIRED:
             name = STEELSERIES_AEROX3_WIRELESS_WIRED_NAME;
+            break;
+        case AEROX_3_GEN2_WIRELESS:
+            name = STEELSERIES_AEROX3_GEN2_WIRELESS_NAME;
             break;
         case AEROX_5_WIRELESS:
             name = STEELSERIES_AEROX5_WIRELESS_NAME;
@@ -76,6 +78,7 @@ bool SteelSeriesAeroxWirelessController::IsWireless()
     switch(proto)
     {
         case AEROX_3_WIRELESS:
+        case AEROX_3_GEN2_WIRELESS:
         case AEROX_5_WIRELESS:
         case AEROX_5_DESTINY_WIRELESS:
         case AEROX_5_DIABLO_WIRELESS:

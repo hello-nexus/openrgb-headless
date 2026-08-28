@@ -186,8 +186,25 @@ RGBController_PolychromeUSB::RGBController_PolychromeUSB(PolychromeUSBController
     SetupZones();
 }
 
+RGBController_PolychromeUSB::~RGBController_PolychromeUSB()
+{
+    Shutdown();
+
+    delete controller;
+}
+
 void RGBController_PolychromeUSB::SetupZones()
 {
+    /*-----------------------------------------------------*\
+    | Only set LED count on the first run                   |
+    \*-----------------------------------------------------*/
+    bool first_run = false;
+
+    if(zones.size() == 0)
+    {
+        first_run = true;
+    }
+
     /*-------------------------------------------------*\
     | Clear any existing color/LED configuration        |
     \*-------------------------------------------------*/
@@ -199,27 +216,54 @@ void RGBController_PolychromeUSB::SetupZones()
     /*-------------------------------------------------*\
     | Set zones and leds                                |
     \*-------------------------------------------------*/
-    for(unsigned int channel_idx = 0; channel_idx < zones.size(); channel_idx++)
+    for(std::size_t channel_idx = 0; channel_idx < zones.size(); channel_idx++)
     {
         PolychromeDeviceInfo device_info = controller->GetPolychromeDevices()[channel_idx];
 
-        zones[channel_idx].type     = ZONE_TYPE_LINEAR;
-
         if(device_info.device_type== PolychromeDeviceType::ADDRESSABLE)
         {
-            zones[channel_idx].name       = polychrome_USB_zone_names[device_info.zone_type];
-            zones[channel_idx].leds_min   = 0;
-            zones[channel_idx].leds_max   = ASROCK_ADDRESSABLE_MAX_LEDS;
-            zones[channel_idx].leds_count = device_info.num_leds;
+            zones[channel_idx].leds_min                 = 0;
+            zones[channel_idx].leds_max                 = ASROCK_ADDRESSABLE_MAX_LEDS;
+
+            if(first_run)
+            {
+                zones[channel_idx].flags                = ZONE_FLAG_MANUALLY_CONFIGURABLE_SIZE
+                                                        | ZONE_FLAG_MANUALLY_CONFIGURABLE_NAME
+                                                        | ZONE_FLAG_MANUALLY_CONFIGURABLE_TYPE
+                                                        | ZONE_FLAG_MANUALLY_CONFIGURABLE_MATRIX_MAP
+                                                        | ZONE_FLAG_MANUALLY_CONFIGURABLE_SEGMENTS;
+            }
+
+            if(!(zones[channel_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_NAME))
+            {
+                zones[channel_idx].name                 = polychrome_USB_zone_names[device_info.zone_type];
+            }
+
+            if(!(zones[channel_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SIZE))
+            {
+                zones[channel_idx].leds_count           = device_info.num_leds;
+            }
+
+            if(!(zones[channel_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_TYPE))
+            {
+                zones[channel_idx].type                 = ZONE_TYPE_LINEAR;
+            }
+
+            if(!(zones[channel_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_MATRIX_MAP))
+            {
+                zones[channel_idx].matrix_map.width     = 0;
+                zones[channel_idx].matrix_map.height    = 0;
+                zones[channel_idx].matrix_map.map.resize(0);
+            }
         }
         else if(device_info.device_type==PolychromeDeviceType::FIXED)
         {
-            zones[channel_idx].name       = polychrome_USB_zone_names[device_info.zone_type];
-            zones[channel_idx].leds_min   = device_info.num_leds;
-            zones[channel_idx].leds_max   = device_info.num_leds;
-            zones[channel_idx].leds_count = device_info.num_leds;
+            zones[channel_idx].name                     = polychrome_USB_zone_names[device_info.zone_type];
+            zones[channel_idx].type                     = ZONE_TYPE_LINEAR;
+            zones[channel_idx].leds_min                 = device_info.num_leds;
+            zones[channel_idx].leds_max                 = device_info.num_leds;
+            zones[channel_idx].leds_count               = device_info.num_leds;
         }
-
 
         for(unsigned int led_ch_idx = 0; led_ch_idx < zones[channel_idx].leds_count; led_ch_idx++)
         {
@@ -227,12 +271,10 @@ void RGBController_PolychromeUSB::SetupZones()
             new_led.name = zones[channel_idx].name;
             new_led.name.append(", LED ");
             new_led.name.append(std::to_string(led_ch_idx + 1));
-            new_led.value = channel_idx;
+            new_led.value = (unsigned int)channel_idx;
 
             leds.push_back(new_led);
         }
-
-        zones[channel_idx].matrix_map = NULL;
     }
 
     SetupColors();
@@ -275,14 +317,9 @@ void RGBController_PolychromeUSB::SetupZones()
      }
 }
 
-void RGBController_PolychromeUSB::ResizeZone(int zone, int new_size)
+void RGBController_PolychromeUSB::DeviceConfigureZone(int zone_idx)
 {
-    if((size_t)zone >= zones.size())
-    {
-        return;
-    }
-
-    if(new_size == (int)zones[zone].leds_count)
+    if((size_t)zone_idx >= zones.size())
     {
         return;
     }
@@ -293,14 +330,39 @@ void RGBController_PolychromeUSB::ResizeZone(int zone, int new_size)
     | putting every later zone's colors at the wrong offset.    |
     | Zero is refused too: SetupColors leaves a zero count      |
     | zone's color pointer NULL and the writers deref it.       |
+    |                                                          |
+    | ConfigureZone has already written leds_count by the time  |
+    | this hook runs, so an out of range request is clamped     |
+    | back into range here rather than rejected before the      |
+    | write, which would leave the bad count in place.          |
     \*---------------------------------------------------------*/
-    if((new_size < 1) || ((unsigned int)new_size < zones[zone].leds_min) || ((unsigned int)new_size > zones[zone].leds_max))
+    if(zones[zone_idx].leds_max < 1)
     {
-        LOG_WARNING("[%s] zone %d '%s' takes %u-%u LEDs, refusing resize to %d", name.c_str(), zone, zones[zone].name.c_str(), zones[zone].leds_min, zones[zone].leds_max, new_size);
         return;
     }
 
-    controller->ResizeZone(zones_info[zone].zone, new_size);
+    unsigned int requested  = zones[zone_idx].leds_count;
+    unsigned int floor      = (zones[zone_idx].leds_min < 1) ? 1 : zones[zone_idx].leds_min;
+    unsigned int clamped    = requested;
+
+    if(clamped < floor)
+    {
+        clamped = floor;
+    }
+
+    if(clamped > zones[zone_idx].leds_max)
+    {
+        clamped = zones[zone_idx].leds_max;
+    }
+
+    if(clamped != requested)
+    {
+        LOG_WARNING("[%s] zone %d '%s' takes %u-%u LEDs, clamping requested %u to %u", name.c_str(), zone_idx, zones[zone_idx].name.c_str(), zones[zone_idx].leds_min, zones[zone_idx].leds_max, requested, clamped);
+
+        zones[zone_idx].leds_count = clamped;
+    }
+
+    controller->SetZoneSize(zones_info[zone_idx].zone, zones[zone_idx].leds_count);
 
     /*---------------------------------------------------------*\
     | Zone color pointers are raw offsets into colors, so they  |
@@ -334,7 +396,7 @@ void RGBController_PolychromeUSB::DeviceUpdateLEDs()
     }
 }
 
-void RGBController_PolychromeUSB::UpdateZoneLEDs(int zone)
+void RGBController_PolychromeUSB::DeviceUpdateZoneLEDs(int zone)
 {
     if(zones[zone].leds_count == 0)
     {
@@ -351,7 +413,7 @@ void RGBController_PolychromeUSB::UpdateZoneLEDs(int zone)
     controller->WriteZone((unsigned char)zone, set_mode, zones_info[zone].speed, zones[zone].colors[0], false);
 }
 
-void RGBController_PolychromeUSB::UpdateSingleLED(int led)
+void RGBController_PolychromeUSB::DeviceUpdateSingleLED(int led)
 {
     unsigned int  channel  = leds[led].value;
     unsigned char set_mode = zones_info[channel].mode;

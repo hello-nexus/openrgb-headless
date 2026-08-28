@@ -11,7 +11,7 @@
 
 #include <stdio.h>
 #include <vector>
-#include "Detector.h"
+#include "DetectionManager.h"
 #include "CrucialController.h"
 #include "LogManager.h"
 #include "RGBController_Crucial.h"
@@ -20,9 +20,10 @@
 
 using namespace std::chrono_literals;
 
-/*----------------------------------------------------------------------*\
-| This list contains the available SMBus addresses for Crucial RAM       |
-\*----------------------------------------------------------------------*/
+/*---------------------------------------------------------*\
+| This list contains the available SMBus addresses for      |
+| Crucial RAM                                               |
+\*---------------------------------------------------------*/
 #define CRUCIAL_ADDRESS_COUNT  8
 
 static const unsigned char crucial_addresses[] =
@@ -51,16 +52,6 @@ std::string concatHexArray(const unsigned char array[], int count, const char sp
 }
 #define TESTING_ADDRESSES concatHexArray(crucial_addresses, CRUCIAL_ADDRESS_COUNT, "|").c_str()
 
-/******************************************************************************************\
-*                                                                                          *
-*   CrucialRegisterRead                                                                    *
-*                                                                                          *
-*       A standalone version of the AuraSMBusController::AuraRegisterRead function for     *
-*       access to Aura devices without instancing the AuraSMBusController class or reading *
-*       the config table from the device.                                                  *
-*                                                                                          *
-\******************************************************************************************/
-
 unsigned char CrucialRegisterRead(i2c_smbus_interface* bus, crucial_dev_id dev, crucial_register reg)
 {
     //Write Aura register
@@ -69,16 +60,6 @@ unsigned char CrucialRegisterRead(i2c_smbus_interface* bus, crucial_dev_id dev, 
     //Read Aura value
     return(bus->i2c_smbus_read_byte_data(dev, 0x81));
 }
-
-/******************************************************************************************\
-*                                                                                          *
-*   TestForCrucialController                                                               *
-*                                                                                          *
-*       Tests the given address to see if an Crucial controller exists there.  First does a*
-*       byte read to test for a response, and if so does a simple read at 0xA0 to test     *
-*       for incrementing values 0...F which was observed at this location during data dump *
-*                                                                                          *
-\******************************************************************************************/
 
 bool TestForCrucialController(i2c_smbus_interface* bus, unsigned char address)
 {
@@ -139,8 +120,7 @@ bool TestForCrucialController(i2c_smbus_interface* bus, unsigned char address)
     }
 
     return(pass);
-
-}   /* TestForCrucialController() */
+}
 
 void CrucialRegisterWrite(i2c_smbus_interface* bus, unsigned char dev, unsigned short reg, unsigned char val)
 {
@@ -151,28 +131,19 @@ void CrucialRegisterWrite(i2c_smbus_interface* bus, unsigned char dev, unsigned 
     bus->i2c_smbus_write_byte_data(dev, 0x01, val);
 }
 
-/******************************************************************************************\
-*                                                                                          *
-*   DetectCrucialControllers                                                               *
-*                                                                                          *
-*       Detect Crucial controllers on the enumerated I2C busses.                           *
-*                                                                                          *
-*           bus - pointer to i2c_smbus_interface where Aura device is connected            *
-*           dev - I2C address of Aura device                                               *
-*                                                                                          *
-\******************************************************************************************/
-
-void DetectCrucialControllers(std::vector<i2c_smbus_interface*> &busses)
+DetectedControllers DetectCrucialControllers(std::vector<i2c_smbus_interface*> &buses)
 {
-    for(unsigned int bus = 0; bus < busses.size(); bus++)
+    DetectedControllers detected_controllers;
+
+    for(unsigned int bus = 0; bus < buses.size(); bus++)
     {
         int address_list_idx = -1;
 
-        IF_DRAM_SMBUS(busses[bus]->pci_vendor, busses[bus]->pci_device)
+        IF_DRAM_SMBUS(buses[bus]->info.pci_vendor, buses[bus]->info.pci_device)
         {
             for(unsigned int slot = 0; slot < 4; slot++)
             {
-                int res = busses[bus]->i2c_smbus_read_byte(0x27);
+                int res = buses[bus]->i2c_smbus_read_byte(0x27);
 
                 if(res < 0)
                 {
@@ -186,7 +157,7 @@ void DetectCrucialControllers(std::vector<i2c_smbus_interface*> &busses)
 
                     if(address_list_idx < CRUCIAL_ADDRESS_COUNT)
                     {
-                        res = busses[bus]->i2c_smbus_read_byte(crucial_addresses[address_list_idx]);
+                        res = buses[bus]->i2c_smbus_read_byte(crucial_addresses[address_list_idx]);
                     }
                     else
                     {
@@ -197,27 +168,27 @@ void DetectCrucialControllers(std::vector<i2c_smbus_interface*> &busses)
                 if(address_list_idx < CRUCIAL_ADDRESS_COUNT)
                 {
                     LOG_DEBUG("[%s] Remapping slot %d to address %02X", CRUCIAL_CONTROLLER_NAME, slot, crucial_addresses[address_list_idx]);
-                    CrucialRegisterWrite(busses[bus], 0x27, 0x82EE, slot);
-                    CrucialRegisterWrite(busses[bus], 0x27, 0x82EF, (crucial_addresses[address_list_idx] << 1));
-                    CrucialRegisterWrite(busses[bus], 0x27, 0x82F0, 0xF0);
+                    CrucialRegisterWrite(buses[bus], 0x27, 0x82EE, slot);
+                    CrucialRegisterWrite(buses[bus], 0x27, 0x82EF, (crucial_addresses[address_list_idx] << 1));
+                    CrucialRegisterWrite(buses[bus], 0x27, 0x82F0, 0xF0);
                 }
 
                 std::this_thread::sleep_for(1ms);
             }
 
-            LOG_DEBUG("[%s] In bus: %02X:%02X looking for devices at [%s]", CRUCIAL_CONTROLLER_NAME, busses[bus]->pci_vendor, busses[bus]->pci_device, TESTING_ADDRESSES);
+            LOG_DEBUG("[%s] In bus: %02X:%02X looking for devices at [%s]", CRUCIAL_CONTROLLER_NAME, buses[bus]->info.pci_vendor, buses[bus]->info.pci_device, TESTING_ADDRESSES);
 
             // Add Crucial controllers
             for(unsigned int address_list_idx = 0; address_list_idx < CRUCIAL_ADDRESS_COUNT; address_list_idx++)
             {
                 LOG_DEBUG("[%s] Testing address %02X to see if there is a device there", CRUCIAL_CONTROLLER_NAME, crucial_addresses[address_list_idx]);
 
-                if(TestForCrucialController(busses[bus], crucial_addresses[address_list_idx]))
+                if(TestForCrucialController(buses[bus], crucial_addresses[address_list_idx]))
                 {
-                    CrucialController*     controller     = new CrucialController(busses[bus], crucial_addresses[address_list_idx]);
+                    CrucialController*     controller     = new CrucialController(buses[bus], crucial_addresses[address_list_idx]);
                     RGBController_Crucial* rgb_controller = new RGBController_Crucial(controller);
 
-                    ResourceManager::get()->RegisterRGBController(rgb_controller);
+                    detected_controllers.push_back(rgb_controller);
                 }
 
                 std::this_thread::sleep_for(1ms);
@@ -225,6 +196,7 @@ void DetectCrucialControllers(std::vector<i2c_smbus_interface*> &busses)
         }
     }
 
-}   /* DetectCrucialControllers() */
+    return(detected_controllers);
+}
 
 REGISTER_I2C_DETECTOR("Crucial Ballistix", DetectCrucialControllers);

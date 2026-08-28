@@ -53,7 +53,7 @@ unsigned char CorsairDRAMController::GetProtocolVersion()
 
 std::string CorsairDRAMController::GetDeviceLocation()
 {
-    std::string return_string(bus->device_name);
+    std::string return_string(bus->info.device_name);
     char addr[5];
     snprintf(addr, 5, "0x%02X", dev);
     return_string.append(", address ");
@@ -431,7 +431,7 @@ void CorsairDRAMController::ReadDeviceInfo()
     /*-----------------------------------------------------*\
     | Log Device Information Data                           |
     \*-----------------------------------------------------*/
-    if(LogManager::get()->getLoglevel() >= LL_TRACE)
+    if(LogManager::get()->GetLogLevel() >= LL_TRACE)
     {
         char            device_info_buf[256];
         unsigned int    pos;

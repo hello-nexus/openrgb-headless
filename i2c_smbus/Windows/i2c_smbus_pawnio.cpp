@@ -10,7 +10,7 @@
 \*---------------------------------------------------------*/
 
 #include <string>
-#include "Detector.h"
+#include "DetectionManager.h"
 #include "i2c_smbus_pawnio.h"
 #include "LogManager.h"
 #include "PawnIOLib.h"
@@ -88,9 +88,9 @@ i2c_smbus_pawnio::i2c_smbus_pawnio(HANDLE handle, std::string name)
     /*-----------------------------------------------------*\
     | Get bus information                                   |
     \*-----------------------------------------------------*/
-    const SIZE_T    in_size         = 1;
-    ULONG64         in[in_size]     = {0};
-    const SIZE_T    out_size        = 3;
+    const SIZE_T    in_size             = 1;
+    ULONG64         in[in_size]         = {0};
+    const SIZE_T    out_size            = 3;
     ULONG64         out[out_size];
     SIZE_T          return_size;
     HRESULT         status;
@@ -99,10 +99,10 @@ i2c_smbus_pawnio::i2c_smbus_pawnio(HANDLE handle, std::string name)
 
     if(!status)
     {
-        this->pci_vendor            = (int)(out[2] & 0x000000000000FFFF);
-        this->pci_device            = (int)((out[2] & 0x00000000FFFF0000) >> 16);
-        this->pci_subsystem_vendor  = (int)((out[2] & 0x0000FFFF0000FFFF) >> 32);
-        this->pci_subsystem_device  = (int)((out[2] & 0xFFFF000000000000) >> 48);
+        this->info.pci_vendor           = (int)(out[2] & 0x000000000000FFFF);
+        this->info.pci_device           = (int)((out[2] & 0x00000000FFFF0000) >> 16);
+        this->info.pci_subsystem_vendor = (int)((out[2] & 0x0000FFFF0000FFFF) >> 32);
+        this->info.pci_subsystem_device = (int)((out[2] & 0xFFFF000000000000) >> 48);
 
         char name_str[9];
         name_str[0]                 = (char)(out[0] & 0x00000000000000FF);
@@ -115,7 +115,7 @@ i2c_smbus_pawnio::i2c_smbus_pawnio(HANDLE handle, std::string name)
         name_str[7]                 = (char)((out[0] & 0xFF00000000000000) >> 56);
         name_str[8]                 = 0;
 
-        strncpy(this->device_name, name_str, 512 );
+        strncpy(this->info.device_name, name_str, 512 );
     }
 
     /*-----------------------------------------------------*\
@@ -380,7 +380,7 @@ bool i2c_smbus_pawnio_detect()
         bus_detected = true;
 
         bus = new i2c_smbus_pawnio(pawnio_handle, "i801");
-        ResourceManager::get()->RegisterI2CBus(bus);
+        DetectionManager::get()->RegisterI2CBus(bus);
     }
 
     /*-----------------------------------------------------*\
@@ -396,7 +396,7 @@ bool i2c_smbus_pawnio_detect()
         piix4_port_sel(pawnio_handle, 0);
 
         bus = new i2c_smbus_pawnio(pawnio_handle, "piix4");
-        ResourceManager::get()->RegisterI2CBus(bus);
+        DetectionManager::get()->RegisterI2CBus(bus);
     }
 
     /*-----------------------------------------------------*\
@@ -412,7 +412,7 @@ bool i2c_smbus_pawnio_detect()
         piix4_port_sel(pawnio_handle, 1);
 
         bus = new i2c_smbus_pawnio(pawnio_handle, "piix4");
-        ResourceManager::get()->RegisterI2CBus(bus);
+        DetectionManager::get()->RegisterI2CBus(bus);
     }
 
     /*-----------------------------------------------------*\
@@ -423,7 +423,7 @@ bool i2c_smbus_pawnio_detect()
         bus_detected = true;
 
         bus = new i2c_smbus_pawnio(pawnio_handle, "NCT6793");
-        ResourceManager::get()->RegisterI2CBus(bus);
+        DetectionManager::get()->RegisterI2CBus(bus);
     }
 
     /*-----------------------------------------------------*\
@@ -436,7 +436,7 @@ bool i2c_smbus_pawnio_detect()
         imc_index_sel(pawnio_handle, 0);
 
         bus = new i2c_smbus_pawnio(pawnio_handle, "Intel Skylake IMC");
-        ResourceManager::get()->RegisterI2CBus(bus);
+        DetectionManager::get()->RegisterI2CBus(bus);
     }
 
     /*-----------------------------------------------------*\
@@ -449,7 +449,7 @@ bool i2c_smbus_pawnio_detect()
         imc_index_sel(pawnio_handle, 1);
 
         bus = new i2c_smbus_pawnio(pawnio_handle, "Intel Skylake IMC");
-        ResourceManager::get()->RegisterI2CBus(bus);
+        DetectionManager::get()->RegisterI2CBus(bus);
     }
 
     return(bus_detected);
