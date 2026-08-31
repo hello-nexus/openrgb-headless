@@ -83,6 +83,19 @@ Everything that's not GUI-bound:
                    "placeholder_only": [ "Corsair K55 RGB PRO" ] } }
   ```
 
+- **Detector map**: at the end of every detection pass the server writes
+  `detector-map.json` into the configuration directory, mapping each detected
+  device name to the `REGISTER_*_DETECTOR` name that produced it. The SDK
+  device description carries only the device name, and the two differ wherever
+  a table-driven detector registers one generic string and emits per-model
+  names (`Corsair DRAM` produces `Corsair Vengeance RGB DDR5`), so without the
+  map an SDK client cannot work out which key to write into `detectors`. First
+  writer wins on a duplicate device name.
+
+  ```json
+  { "version": 1, "devices": { "Corsair Vengeance RGB DDR5": "Corsair DRAM" } }
+  ```
+
 ## License
 
 OpenRGB is licensed under the **GNU General Public License, version 2 or later**

@@ -332,6 +332,16 @@ private:
     std::string             detection_path;
 
     /*-----------------------------------------------------*\
+    | Name of the REGISTER_*_DETECTOR entry that produced   |
+    | this controller. Often differs from name: table-driven|
+    | detectors register one generic string ("Corsair DRAM")|
+    | and emit per-model names ("Corsair Vengeance RGB      |
+    | DDR5"), and only the detector string can be denylisted|
+    | in OpenRGB.json.                                      |
+    \*-----------------------------------------------------*/
+    std::string             detector_name;
+
+    /*-----------------------------------------------------*\
     | Certain internal OpenRGB framework classes can modify |
     | protected members                                     |
     \*-----------------------------------------------------*/

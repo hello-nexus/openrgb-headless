@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cctype>
 #include <cstdio>
+#include <fstream>
 #include <future>
 #include <thread>
 #include "DetectionManager.h"
@@ -854,6 +855,13 @@ void DetectionManager::BackgroundDetectDevices()
     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
 
     /*-----------------------------------------------------*\
+    | Publish the device name -> detector name map before   |
+    | announcing completion, so a client that reacts to the |
+    | signal reads a map covering this run's devices        |
+    \*-----------------------------------------------------*/
+    WriteDetectorMap();
+
+    /*-----------------------------------------------------*\
     | Signal that detection is complete                     |
     \*-----------------------------------------------------*/
     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_COMPLETE);
@@ -1063,7 +1071,7 @@ static bool IsPlaceholderOnlyDetector(json& detector_settings, const std::string
 | still be blocked in a driver call, so joining it would reintroduce the    |
 | stall this exists to prevent.                                             |
 \*-------------------------------------------------------------------------*/
-static DetectedControllers RunDetectorWithTimeout(
+DetectedControllers DetectionManager::RunDetectorWithTimeout(
     std::function<DetectedControllers()> fn,
     const char*                          name,
     unsigned int                         timeout_ms)
@@ -1107,6 +1115,11 @@ static DetectedControllers RunDetectorWithTimeout(
             result.second.push_back(MakeDetectionFailurePlaceholder(name));
         }
 
+        for(RGBController* controller : result.second)
+        {
+            controller->detector_name = name;
+        }
+
         return(result.second);
     }
 
@@ -1115,6 +1128,7 @@ static DetectedControllers RunDetectorWithTimeout(
 
     DetectedControllers timed_out;
     timed_out.push_back(MakeDetectionFailurePlaceholder(name));
+    timed_out[0]->detector_name = name;
     return(timed_out);
 }
 
@@ -2245,6 +2259,73 @@ void DetectionManager::SignalUpdate(unsigned int update_reason)
     DetectionCallbackMutex.unlock();
 
     LOG_TRACE("[%s] Update signalled: %d.", DETECTIONMANAGER, update_reason);
+}
+
+/*---------------------------------------------------------*\
+| Writes detector-map.json: {"version": 1, "devices":       |
+| {"<device name>": "<detector name>"}}. The SDK device     |
+| description carries no detector name, so a client that    |
+| wants to stop a device being claimed - the only way is    |
+| the "Detectors" denylist in OpenRGB.json, which is keyed  |
+| by detector name - cannot derive the key from the device  |
+| alone. Table-driven detectors are where the two diverge:  |
+| "Corsair DRAM" emits "Corsair Vengeance RGB DDR5".        |
+|                                                           |
+| First writer wins on a duplicate device name, so a model  |
+| reachable through two detectors maps to the one that      |
+| detected it first. Best-effort: a failure here costs a    |
+| client the mapping, never detection.                      |
+\*---------------------------------------------------------*/
+void DetectionManager::WriteDetectorMap()
+{
+    json map_json;
+    map_json["version"] = 1;
+    map_json["devices"] = json::object();
+
+    RGBControllersMutex.lock();
+
+    for(RGBController* controller : rgb_controllers)
+    {
+        if(controller->detector_name.empty() || controller->name.empty())
+        {
+            continue;
+        }
+
+        if(map_json["devices"].contains(controller->name))
+        {
+            if(map_json["devices"][controller->name] != controller->detector_name)
+            {
+                LOG_WARNING("[%s] Device '%s' is produced by both '%s' and '%s'; keeping the first", DETECTIONMANAGER, controller->name.c_str(), map_json["devices"][controller->name].get<std::string>().c_str(), controller->detector_name.c_str());
+            }
+            continue;
+        }
+
+        map_json["devices"][controller->name] = controller->detector_name;
+    }
+
+    RGBControllersMutex.unlock();
+
+    const filesystem::path map_path = ResourceManager::get()->GetConfigurationDirectory() / "detector-map.json";
+
+    std::ofstream map_file(map_path, std::ios::out | std::ios::binary);
+
+    if(!map_file)
+    {
+        LOG_WARNING("[%s] Cannot open %s for writing", DETECTIONMANAGER, map_path.string().c_str());
+        return;
+    }
+
+    try
+    {
+        map_file << map_json.dump(4);
+        LOG_INFO("[%s] Wrote detector map for %u device(s)", DETECTIONMANAGER, (unsigned int)map_json["devices"].size());
+    }
+    catch(const std::exception& e)
+    {
+        LOG_WARNING("[%s] Cannot write detector map: %s", DETECTIONMANAGER, e.what());
+    }
+
+    map_file.close();
 }
 
 bool DetectionManager::IsAnyDimmDetectorEnabled(json &detector_settings)
