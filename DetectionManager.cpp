@@ -2300,6 +2300,26 @@ void DetectionManager::SignalUpdate(unsigned int update_reason)
 \*---------------------------------------------------------*/
 void DetectionManager::WriteDetectorMap()
 {
+    /*-----------------------------------------------------*\
+    | Runs on the detection thread for every registration,  |
+    | so nothing it does may escape into the detector loop  |
+    \*-----------------------------------------------------*/
+    try
+    {
+        WriteDetectorMapUnguarded();
+    }
+    catch(const std::exception& e)
+    {
+        LOG_WARNING("[%s] Detector map write failed: %s", DETECTIONMANAGER, e.what());
+    }
+    catch(...)
+    {
+        LOG_WARNING("[%s] Detector map write failed", DETECTIONMANAGER);
+    }
+}
+
+void DetectionManager::WriteDetectorMapUnguarded()
+{
     json map_json;
     map_json["version"] = 1;
     map_json["devices"] = json::object();

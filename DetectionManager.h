@@ -416,6 +416,7 @@ private:
     | builds, so end of detection is not end of arrivals.   |
     \*-----------------------------------------------------*/
     void WriteDetectorMap();
+    void WriteDetectorMapUnguarded();
 };
 
 /*---------------------------------------------------------*\
