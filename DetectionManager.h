@@ -399,16 +399,21 @@ private:
     | Runs one detector under a timeout and tags every      |
     | controller it produced with the detector's own name.  |
     | A static member rather than a file-local function so  |
-    | it can write RGBController's protected detector_name. |
+    | friendship reaches RGBController's detector_name. The |
+    | name is taken by value: call sites pass a pointer into|
+    | detection_string, which the hotplug thread rewrites   |
+    | while this waits out the detector timeout.            |
     \*-----------------------------------------------------*/
-    static DetectedControllers RunDetectorWithTimeout(std::function<DetectedControllers()> fn, const char* name, unsigned int timeout_ms);
+    static DetectedControllers RunDetectorWithTimeout(std::function<DetectedControllers()> fn, std::string name, unsigned int timeout_ms);
 
     /*-----------------------------------------------------*\
-    | Dumps device name -> detector name for every detected |
+    | Dumps device name -> detector name for every known    |
     | controller to detector-map.json in the configuration  |
     | directory. SDK clients see only the device name, so   |
     | this is the only way for one to name the detector it  |
-    | needs to disable.                                     |
+    | needs to disable. Republished on every controller list|
+    | change: HID detection runs asynchronously on hotplug  |
+    | builds, so end of detection is not end of arrivals.   |
     \*-----------------------------------------------------*/
     void WriteDetectorMap();
 };
