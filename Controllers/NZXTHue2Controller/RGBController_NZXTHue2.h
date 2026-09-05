@@ -33,6 +33,8 @@ public:
     void        DeviceUpdateZoneMode(int zone);
 
 private:
+    void        SetupZoneSegments(unsigned int zone_idx);
+
     NZXTHue2Controller*         controller;
     std::vector<unsigned int>   leds_channel;
     std::vector<unsigned int>   zones_channel;

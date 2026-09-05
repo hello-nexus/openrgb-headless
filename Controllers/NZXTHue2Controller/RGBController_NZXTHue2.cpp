@@ -363,130 +363,164 @@ void RGBController_NZXTHue2::SetupZones()
     \*-------------------------------------------------*/
     for(unsigned int zone_idx = 0; zone_idx < zones.size(); zone_idx++)
     {
-        unsigned int start_idx = 0;
-
-        for(unsigned int dev_idx = 0; dev_idx < 6; dev_idx++)
-        {
-            std::string device_name = "";
-            switch(controller->channel_dev_ids[zone_idx][dev_idx])
-            {
-            case 0x01: //Hue 1 strip
-                device_name = "Hue 1 strip";
-                break;
-
-            case 0x02: //Aer 1 fan
-                device_name = "Aer 1 fan";
-                break;
-
-            case 0x04: //Hue 2 strip (10 LEDs)
-                device_name = "Hue 2 strip (10 LEDs)";
-                break;
-
-            case 0x05: //Hue 2 strip (8 LEDs)
-                device_name = "Hue 2 strip (8 LEDs)";
-                break;
-
-            case 0x06: //Hue 2 strip (6 LEDs)
-                device_name = "Hue 2 strip (6 LEDs)";
-                break;
-
-            case 0x08: //Hue 2 Cable Comb (14 LEDs)
-                device_name = "Hue 2 Cable Comb (14 LEDs)";
-                break;
-
-            case 0x09: //Hue 2 Underglow (300mm) (15 LEDs)
-                device_name = "Hue 2 Underglow (300mm) (15 LEDs)";
-                break;
-
-            case 0x0A: //Hue 2 Underglow (200mm) (10 LEDs)
-                device_name = "Hue 2 Underglow (200mm) (10 LEDs)";
-                break;
-
-            case 0x0B: //Aer 2 fan (120mm)
-                device_name = "Aer 2 fan (120mm)";
-                break;
-
-            case 0x0C: //Aer 2 fan (140mm)
-                device_name = "Aer 2 fan (140mm)";
-                break;
-
-            case 0x10: //Kraken X3 ring
-                device_name = "Kraken X3 ring";
-                break;
-
-            case 0x11: //Kraken X3 logo
-                device_name = "Kraken X3 logo";
-                break;
-
-            case 0x13: //F120 RGB fan (120mm)
-                device_name = "F120 fan (120mm)";
-                break;
-
-            case 0x14: //F140 RGB fan (140mm)
-                device_name = "F140 fan (140mm)";
-                break;
-
-            case 0x15: //F120 RGB Duo fan (120mm)
-                device_name = "F120 Duo fan (120mm)";
-                break;
-
-            case 0x16: //F140 RGB Duo fan (140mm)
-                device_name = "F140 Duo fan (140mm)";
-                break;
-
-            case 0x17: //F120 RGB Core fan (120mm)
-                device_name = "F120 Core fan (120mm)";
-                break;
-
-            case 0x18: //F140 RGB Core fan (140mm)
-                device_name = "F140 Core fan (140mm)";
-                break;
-
-            case 0x19: //F120 RGB Core fan case version (120mm)
-                device_name = "F120 Core fan case version (120mm)";
-                break;
-
-            case 0x1D: //F360 Core fan case version (360mm)
-                device_name = "F360 Core fan case version (360mm)";
-                break;
-
-            case 0x1E: //Kraken Elite Ring
-                device_name = "Kraken Elite Ring";
-                break;
-
-            case 0x1F: //F420 RGB
-                device_name = "F420 Core fan case version";
-                break;
-
-            default:
-                break;
-            }
-
-            if(device_name != "")
-            {
-                segment new_segment;
-                new_segment.name = device_name;
-                new_segment.type = ZONE_TYPE_LINEAR;
-                new_segment.start_idx = start_idx;
-                new_segment.leds_count = controller->channel_dev_szs[zone_idx][dev_idx];
-
-                zones[zone_idx].segments.push_back(new_segment);
-
-                start_idx += new_segment.leds_count;
-            }
-        }
+        SetupZoneSegments(zone_idx);
     }
 
     SetupColors();
 }
 
-void RGBController_NZXTHue2::DeviceConfigureZone(int zone_idx)
+/*---------------------------------------------------------*\
+| Rebuild one zone's accessory segments from the last       |
+| hardware scan. Clears first, so it is safe to call on a   |
+| zone whose segments were dropped.                         |
+\*---------------------------------------------------------*/
+void RGBController_NZXTHue2::SetupZoneSegments(unsigned int zone_idx)
 {
-    if((size_t)zone_idx < zones.size())
+    unsigned int start_idx = 0;
+
+    if(zone_idx >= zones.size())
     {
-        SetupZones();
+        return;
     }
 
+    zones[zone_idx].segments.clear();
+
+    for(unsigned int dev_idx = 0; dev_idx < 6; dev_idx++)
+    {
+        std::string device_name = "";
+        switch(controller->channel_dev_ids[zone_idx][dev_idx])
+        {
+        case 0x01: //Hue 1 strip
+            device_name = "Hue 1 strip";
+            break;
+
+        case 0x02: //Aer 1 fan
+            device_name = "Aer 1 fan";
+            break;
+
+        case 0x04: //Hue 2 strip (10 LEDs)
+            device_name = "Hue 2 strip (10 LEDs)";
+            break;
+
+        case 0x05: //Hue 2 strip (8 LEDs)
+            device_name = "Hue 2 strip (8 LEDs)";
+            break;
+
+        case 0x06: //Hue 2 strip (6 LEDs)
+            device_name = "Hue 2 strip (6 LEDs)";
+            break;
+
+        case 0x08: //Hue 2 Cable Comb (14 LEDs)
+            device_name = "Hue 2 Cable Comb (14 LEDs)";
+            break;
+
+        case 0x09: //Hue 2 Underglow (300mm) (15 LEDs)
+            device_name = "Hue 2 Underglow (300mm) (15 LEDs)";
+            break;
+
+        case 0x0A: //Hue 2 Underglow (200mm) (10 LEDs)
+            device_name = "Hue 2 Underglow (200mm) (10 LEDs)";
+            break;
+
+        case 0x0B: //Aer 2 fan (120mm)
+            device_name = "Aer 2 fan (120mm)";
+            break;
+
+        case 0x0C: //Aer 2 fan (140mm)
+            device_name = "Aer 2 fan (140mm)";
+            break;
+
+        case 0x10: //Kraken X3 ring
+            device_name = "Kraken X3 ring";
+            break;
+
+        case 0x11: //Kraken X3 logo
+            device_name = "Kraken X3 logo";
+            break;
+
+        case 0x13: //F120 RGB fan (120mm)
+            device_name = "F120 fan (120mm)";
+            break;
+
+        case 0x14: //F140 RGB fan (140mm)
+            device_name = "F140 fan (140mm)";
+            break;
+
+        case 0x15: //F120 RGB Duo fan (120mm)
+            device_name = "F120 Duo fan (120mm)";
+            break;
+
+        case 0x16: //F140 RGB Duo fan (140mm)
+            device_name = "F140 Duo fan (140mm)";
+            break;
+
+        case 0x17: //F120 RGB Core fan (120mm)
+            device_name = "F120 Core fan (120mm)";
+            break;
+
+        case 0x18: //F140 RGB Core fan (140mm)
+            device_name = "F140 Core fan (140mm)";
+            break;
+
+        case 0x19: //F120 RGB Core fan case version (120mm)
+            device_name = "F120 Core fan case version (120mm)";
+            break;
+
+        case 0x1D: //F360 Core fan case version (360mm)
+            device_name = "F360 Core fan case version (360mm)";
+            break;
+
+        case 0x1E: //Kraken Elite Ring
+            device_name = "Kraken Elite Ring";
+            break;
+
+        case 0x1F: //F420 RGB
+            device_name = "F420 Core fan case version";
+            break;
+
+        default:
+            break;
+        }
+
+        if(device_name != "")
+        {
+            segment new_segment;
+            new_segment.name = device_name;
+            new_segment.type = ZONE_TYPE_LINEAR;
+            new_segment.start_idx = start_idx;
+            new_segment.leds_count = controller->channel_dev_szs[zone_idx][dev_idx];
+
+            zones[zone_idx].segments.push_back(new_segment);
+
+            start_idx += new_segment.leds_count;
+        }
+    }
+}
+
+void RGBController_NZXTHue2::DeviceConfigureZone(int zone_idx)
+{
+    if(((size_t)zone_idx < zones.size()) && (zone_idx < HUE_2_NUM_CHANNELS))
+    {
+        /*---------------------------------------------------------*\
+        | Zone sizes come from the hardware accessory scan, so a    |
+        | client-requested size can never hold. Restore the scanned |
+        | count, rebuild the segments ConfigureZone just cleared,   |
+        | and re-point the color buffers.                           |
+        |                                                           |
+        | SetupZones() must not run here: it appends to zones and   |
+        | leds instead of replacing them, so every configure grew   |
+        | the device and pushed colors to channels that do not      |
+        | exist.                                                    |
+        \*---------------------------------------------------------*/
+        zones[zone_idx].leds_count = controller->channel_leds[zone_idx];
+
+        if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SEGMENTS))
+        {
+            SetupZoneSegments((unsigned int)zone_idx);
+        }
+
+        SetupColors();
+    }
 }
 
 void RGBController_NZXTHue2::DeviceUpdateLEDs()
