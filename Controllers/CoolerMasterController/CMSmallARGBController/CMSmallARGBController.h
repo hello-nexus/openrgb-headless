@@ -39,16 +39,6 @@ enum
     CM_SMALL_ARGB_BLUE_BYTE             = 11,
 };
 
-struct cm_small_argb_headers
-{
-    const char*     name;
-    unsigned char   header;
-    bool            digital;
-    unsigned int    count;
-};
-
-extern cm_small_argb_headers cm_small_argb_header_data[1];
-
 enum
 {
     CM_SMALL_ARGB_MODE_SPECTRUM       = 0x01,   //Spectrum Mode
@@ -71,6 +61,8 @@ enum
     CM_SMALL_ARGB_SPEED_FASTEST       = 0x04,   // Fastest speed
 };
 
+#define CM_SMALL_ARGB_FW0012            std::string("A202104052336")
+
 class CMSmallARGBController
 {
 public:
@@ -80,12 +72,14 @@ public:
     std::string         GetDeviceName();
     std::string         GetSerial();
     std::string         GetLocation();
+    std::string         GetVersion();
 
     unsigned char       GetMode();
     unsigned char       GetLedRed();
     unsigned char       GetLedGreen();
     unsigned char       GetLedBlue();
     unsigned char       GetLedSpeed();
+    unsigned char       GetBrightness();
     bool                GetRandomColours();
 
     void                SetLedCount(int zone, int led_count);

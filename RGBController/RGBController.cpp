@@ -21,7 +21,7 @@
 | while ensuring we don't access out of bounds              |
 \*---------------------------------------------------------*/
 #define COPY_DATA_FIELD(data_ptr, data_start, field)                                \
-    if((unsigned)(data_ptr + sizeof(field) - data_start) <= (unsigned)data_size)    \
+    if((size_t)(data_ptr + sizeof(field) - data_start) <= (size_t)data_size)        \
     {                                                                               \
         memcpy(&field, data_ptr, sizeof(field));                                    \
         data_ptr += sizeof(field);                                                  \
@@ -32,7 +32,7 @@
     }                                                                               \
 
 #define COPY_DATA_FIELD_UNLOCK(data_ptr, data_start, field, controller)             \
-    if((unsigned)(data_ptr + sizeof(field) - data_start) <= (unsigned)data_size)    \
+    if((size_t)(data_ptr + sizeof(field) - data_start) <= (size_t)data_size)        \
     {                                                                               \
         memcpy(&field, data_ptr, sizeof(field));                                    \
         data_ptr += sizeof(field);                                                  \
@@ -44,7 +44,7 @@
     }                                                                               \
 
 #define COPY_STRING_FIELD(data_ptr, data_start, length, field)                      \
-    if((unsigned)(data_ptr + length - data_start) <= (unsigned)data_size)           \
+    if((size_t)(data_ptr + length - data_start) <= (size_t)data_size)               \
     {                                                                               \
         field.assign((char *)data_ptr, length);                                     \
         field = StringUtils::remove_null_terminating_chars(field);                  \
@@ -56,7 +56,7 @@
     }                                                                               \
 
 #define COPY_STRING_FIELD_UNLOCK(data_ptr, data_start, length, field, controller)   \
-    if((unsigned)(data_ptr + length - data_start) <= (unsigned)data_size)           \
+    if((size_t)(data_ptr + length - data_start) <= (size_t)data_size)               \
     {                                                                               \
         field.assign((char *)data_ptr, length);                                     \
         field = StringUtils::remove_null_terminating_chars(field);                  \
@@ -1507,13 +1507,12 @@ void RGBController::SetCustomMode()
             && ((modes[mode_idx].color_mode == MODE_COLORS_PER_LED)
              || (modes[mode_idx].color_mode == MODE_COLORS_MODE_SPECIFIC)))
             {
-                active_mode = mode_idx;
+                SetActiveMode(mode_idx);
+                UpdateMode();
                 return;
             }
         }
     }
-
-    UpdateMode();
 }
 
 /*---------------------------------------------------------*\
@@ -4721,13 +4720,15 @@ bool RGBController::SetModeValuesFromMode(mode& destination, mode& source)
     && (destination.brightness_min == source.brightness_min)
     && (((destination.brightness_max >= destination.brightness_min) && (source.brightness >= destination.brightness_min) && (source.brightness <= destination.brightness_max))
      || ((destination.brightness_max <= destination.brightness_min) && (source.brightness <= destination.brightness_min) && (source.brightness >= destination.brightness_max)))
-    && ((((destination.flags & (MODE_FLAG_HAS_PER_LED_COLOR | MODE_FLAG_HAS_PER_LED_COLOR | MODE_FLAG_HAS_RANDOM_COLOR)) == 0) && (source.color_mode == MODE_COLORS_NONE))
-     || ((destination.flags & MODE_FLAG_HAS_PER_LED_COLOR)                                                                      && (source.color_mode == MODE_COLORS_PER_LED))
-     || ((destination.flags & MODE_FLAG_HAS_MODE_SPECIFIC_COLOR)                                                                && (source.color_mode == MODE_COLORS_MODE_SPECIFIC))
-     || ((destination.flags & MODE_FLAG_HAS_RANDOM_COLOR)                                                                       && (source.color_mode == MODE_COLORS_RANDOM)))
-    && (destination.colors_max == source.colors_max)
-    && (destination.colors_min == source.colors_min)
-    && ((source.colors.size() >= destination.colors_min) && (source.colors.size() <= destination.colors_max))
+    && ((((destination.flags & (MODE_FLAG_HAS_PER_LED_COLOR | MODE_FLAG_HAS_MODE_SPECIFIC_COLOR | MODE_FLAG_HAS_RANDOM_COLOR)) == 0) && (source.color_mode == MODE_COLORS_NONE))
+     || ((destination.flags & MODE_FLAG_HAS_PER_LED_COLOR)                                                                           && (source.color_mode == MODE_COLORS_PER_LED))
+     || ((destination.flags & MODE_FLAG_HAS_MODE_SPECIFIC_COLOR)                                                                     && (source.color_mode == MODE_COLORS_MODE_SPECIFIC))
+     || ((destination.flags & MODE_FLAG_HAS_RANDOM_COLOR)                                                                            && (source.color_mode == MODE_COLORS_RANDOM)))
+    && (((destination.flags & MODE_FLAG_HAS_MODE_SPECIFIC_COLOR) == 0)
+     || ((destination.colors_max == source.colors_max)
+      && (destination.colors_min == source.colors_min)
+      && (source.colors.size() >= destination.colors_min)
+      && (source.colors.size() <= destination.colors_max)))
     && ((((destination.flags & (MODE_FLAG_HAS_DIRECTION_HV | MODE_FLAG_HAS_DIRECTION_LR | MODE_FLAG_HAS_DIRECTION_UD)) == 0) && (source.direction == 0))
      || ((destination.flags & MODE_FLAG_HAS_DIRECTION_HV)                                                                    && ((source.direction == MODE_DIRECTION_HORIZONTAL) || (source.direction == MODE_DIRECTION_VERTICAL)))
      || ((destination.flags & MODE_FLAG_HAS_DIRECTION_LR)                                                                    && ((source.direction == MODE_DIRECTION_LEFT)       || (source.direction == MODE_DIRECTION_RIGHT)))

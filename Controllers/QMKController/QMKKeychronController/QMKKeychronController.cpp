@@ -26,13 +26,17 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     /*-----------------------------------------------------*\
     | Initialize controller fields                          |
     \*-----------------------------------------------------*/
-    dev                     = dev_handle;
-    location                = path;
-    kc_protocol_version     = 0;
-    kc_rgb_protocol_version = 0;
-    number_leds             = 0;
-    supported_features      = 0;
-    via_protocol_version    = 0;
+    dev                         = dev_handle;
+    location                    = path;
+    kc_dongle_firmware_version  = "";
+    kc_firmware_version         = "";
+    kc_protocol_version         = 0;
+    kc_rgb_protocol_version     = 0;
+    number_leds                 = 0;
+    supported_features          = 0;
+    via_protocol_version        = 0;
+    wireless_device_pid         = 0;
+    wireless_device_vid         = 0;
 
     /*-----------------------------------------------------*\
     | Read product string                                   |
@@ -83,6 +87,22 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     }
 
     /*-----------------------------------------------------*\
+    | If the device is a Keychron wireless dongle that      |
+    | supports wireless RGB control, probe the attached     |
+    | keyboard's information                                |
+    \*-----------------------------------------------------*/
+    CmdGetWirelessDeviceInfo(&wireless_device_vid, &wireless_device_pid);
+
+    if(wireless_device_vid != 0 && wireless_device_pid != 0)
+    {
+        /*-------------------------------------------------*\
+        | Wireless keyboard detected, update dev_pid to use |
+        | the keyboard's PID instead of the dongle's PID    |
+        \*-------------------------------------------------*/
+        dev_pid = wireless_device_pid;
+    }
+
+    /*-----------------------------------------------------*\
     | Get VIA protocol version                              |
     \*-----------------------------------------------------*/
     CmdGetViaProtocolVersion(&via_protocol_version);
@@ -95,7 +115,27 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     /*-----------------------------------------------------*\
     | Get Keychron firmware version                         |
     \*-----------------------------------------------------*/
-    kc_firmware_version = CmdGetKeychronFirmwareVersion();
+    std::string initial_firmware = CmdGetKeychronFirmwareVersion();
+
+    if(wireless_device_vid != 0 && wireless_device_pid != 0)
+    {
+        /*-------------------------------------------------*\
+        | For wireless connections:                         |
+        | - The initial firmware is the dongle's version    |
+        | - Query the keyboard's firmware via wireless      |
+        \*-------------------------------------------------*/
+        kc_dongle_firmware_version = initial_firmware;
+        kc_firmware_version = CmdGetWirelessKeyboardFirmwareVersion();
+    }
+    else
+    {
+        /*-------------------------------------------------*\
+        | For wired connections:                            |
+        | - Use the firmware version directly               |
+        | - No dongle firmware to display                   |
+        \*-------------------------------------------------*/
+        kc_firmware_version = initial_firmware;
+    }
 
     /*-----------------------------------------------------*\
     | Get supported Keychron features                       |
@@ -159,18 +199,29 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     /*-----------------------------------------------------*\
     | Apply matrix corrections                              |
     \*-----------------------------------------------------*/
+    const std::vector<qmk_rgb_matrix_led_info> raw_led_info = led_info;
+
     for(unsigned int patch_idx = 0; patch_idx < KEYCHRON_PATCH_COUNT; patch_idx++)
     {
         if(dev_pid == keychron_patches[patch_idx]->pid)
         {
-            for(unsigned int patch_entry_idx = 0; patch_entry_idx < keychron_patches[patch_idx]->num_entries; patch_entry_idx++)
+            for(unsigned int patch_entry_idx = 0;
+                patch_entry_idx < keychron_patches[patch_idx]->num_entries;
+                patch_entry_idx++)
             {
-                const keychron_patch_entry& patch_entry = keychron_patches[patch_idx]->patch[patch_entry_idx];
+                const keychron_patch_entry& patch_entry =
+                    keychron_patches[patch_idx]->patch[patch_entry_idx];
 
-                if(patch_entry.led_idx < led_info.size())
+                for(unsigned int led_idx = 0; led_idx < raw_led_info.size(); led_idx++)
                 {
-                    led_info[patch_entry.led_idx].row = patch_entry.row;
-                    led_info[patch_entry.led_idx].col = patch_entry.col;
+                    if(raw_led_info[led_idx].valid &&
+                    raw_led_info[led_idx].row == patch_entry.source_row &&
+                    raw_led_info[led_idx].col == patch_entry.source_col)
+                    {
+                        led_info[led_idx].row = patch_entry.row;
+                        led_info[led_idx].col = patch_entry.col;
+                        break;
+                    }
                 }
             }
 
@@ -209,10 +260,27 @@ std::string QMKKeychronController::GetVersion()
     /*-----------------------------------------------------*\
     | Format multi-line version text                        |
     \*-----------------------------------------------------*/
-    return("VIA: "          + std::to_string(via_protocol_version) + "\r\n" +
-           "Keychron: "     + std::to_string(kc_protocol_version) + "\r\n" +
-           "Keychron RGB: " + std::to_string(kc_rgb_protocol_version) + "\r\n" +
-           "Keychron FW: "  + kc_firmware_version);
+    std::string result = "VIA: "          + std::to_string(via_protocol_version) + "\r\n" +
+                         "Keychron: "     + std::to_string(kc_protocol_version) + "\r\n" +
+                         "Keychron RGB: " + std::to_string(kc_rgb_protocol_version) + "\r\n";
+
+    if(!kc_dongle_firmware_version.empty())
+    {
+        /*-------------------------------------------------*\
+        | Wireless - show both dongle and keyboard          |
+        \*-------------------------------------------------*/
+        result += "Dongle FW: "   + kc_dongle_firmware_version + "\r\n" +
+                  "Keyboard FW: " + kc_firmware_version;
+    }
+    else
+    {
+        /*-------------------------------------------------*\
+        | Wired - show keyboard only                        |
+        \*-------------------------------------------------*/
+        result += "Keychron FW: " + kc_firmware_version;
+    }
+
+    return(result);
 }
 
 bool QMKKeychronController::GetSupported()
@@ -427,6 +495,68 @@ void QMKKeychronController::CmdGetViaProtocolVersion
     | The protocol version byte order is reversed           |
     \*-----------------------------------------------------*/
     *via_protocol_version = ((*via_protocol_version & 0x00FF) << 8) | ((*via_protocol_version & 0xFF00) >> 8);
+}
+
+void QMKKeychronController::CmdGetWirelessDeviceInfo
+    (
+    unsigned short*     wireless_vid,
+    unsigned short*     wireless_pid
+    )
+{
+    /*-----------------------------------------------------*\
+    | Query wireless keyboard information via dongle        |
+    | This allows the controller to identify the actual     |
+    | keyboard's USB VID/PID instead of the dongle's        |
+    \*-----------------------------------------------------*/
+    unsigned char response[10] = { 0 };
+
+    *wireless_vid = 0;
+    *wireless_pid = 0;
+
+    if(ViaSendCommand(KC_WIRELESS_DEVICE_INFO, NULL, 0, response, sizeof(response)) <= 0)
+    {
+        return;
+    }
+
+    /*-----------------------------------------------------*\
+    | Response format:                                      |
+    | Byte 0: Status (0x01 = connected/valid)               |
+    | Bytes 1-2: VID (little-endian)                        |
+    | Bytes 3-4: PID (little-endian)                        |
+    | Bytes 5+: Additional info                             |
+    \*-----------------------------------------------------*/
+    if(response[0] != 0x01)
+    {
+        /*-------------------------------------------------*\
+        | No wireless keyboard connected                    |
+        \*-------------------------------------------------*/
+        return;
+    }
+
+    *wireless_vid = response[1] | (response[2] << 8);
+    *wireless_pid = response[3] | (response[4] << 8);
+}
+
+std::string QMKKeychronController::CmdGetWirelessKeyboardFirmwareVersion()
+{
+    /*-----------------------------------------------------*\
+    | Query wireless keyboard firmware version via dongle   |
+    | Similar to CmdGetKeychronFirmwareVersion but for      |
+    | the connected wireless keyboard instead of the dongle |
+    \*-----------------------------------------------------*/
+    char response[30] = { 0 };
+
+    if(ViaSendCommand(KC_WIRELESS_FIRMWARE_VERSION, NULL, 0, (unsigned char*)response, sizeof(response)) <= 0)
+    {
+        return("");
+    }
+
+    /*-----------------------------------------------------*\
+    | Ensure response null termination                      |
+    \*-----------------------------------------------------*/
+    response[29] = 0;
+
+    return(std::string(response));
 }
 
 void QMKKeychronController::CmdSaveMode()

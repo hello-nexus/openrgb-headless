@@ -20,9 +20,6 @@
 #include "LogitechG213Controller.h"
 #include "LogitechG600Controller.h"
 #include "LogitechG933Controller.h"
-#include "LogitechG810Controller.h"
-#include "LogitechGProKeyboardController.h"
-#include "LogitechG910Controller.h"
 #include "LogitechG815Controller.h"
 #include "LogitechG915Controller.h"
 #include "LogitechGLightsyncController.h"
@@ -32,9 +29,6 @@
 #include "RGBController_LogitechG213.h"
 #include "RGBController_LogitechG600.h"
 #include "RGBController_LogitechG933.h"
-#include "RGBController_LogitechG810.h"
-#include "RGBController_LogitechGProKeyboard.h"
-#include "RGBController_LogitechG910.h"
 #include "RGBController_LogitechG815.h"
 #include "RGBController_LogitechG915.h"
 #include "RGBController_LogitechGLightsync.h"
@@ -61,12 +55,6 @@ using namespace std::chrono_literals;
 | Keyboard product IDs                                      |
 \*---------------------------------------------------------*/
 #define LOGITECH_G213_PID                           0xC336
-#define LOGITECH_G512_PID                           0xC342
-#define LOGITECH_G512_RGB_PID                       0xC33C
-#define LOGITECH_G610_1_PID                         0xC333
-#define LOGITECH_G610_2_PID                         0xC338
-#define LOGITECH_G810_1_PID                         0xC331
-#define LOGITECH_G810_2_PID                         0xC337
 #define LOGITECH_G813_PID                           0xC232
 #define LOGITECH_G815_PID                           0xC33F
 #define LOGITECH_G915_WIRED_PID                     0xC33E
@@ -74,9 +62,6 @@ using namespace std::chrono_literals;
 #define LOGITECH_G915_RECEIVER_2_PID                0xC547
 #define LOGITECH_G915TKL_WIRED_PID                  0xC343
 #define LOGITECH_G915TKL_RECEIVER_PID               0xC545
-#define LOGITECH_G910_ORION_SPARK_PID               0xC32B
-#define LOGITECH_G910_PID                           0xC335
-#define LOGITECH_GPRO_KEYBOARD_1_PID                0xC339
 
 /*---------------------------------------------------------*\
 | Mouse product IDs                                         |
@@ -167,112 +152,6 @@ DetectedControllers DetectLogitechKeyboardG213(hid_device_info* info, const std:
         RGBController_LogitechG213* rgb_controller = new RGBController_LogitechG213(controller);
 
         detected_controllers.push_back(rgb_controller);
-    }
-
-    return(detected_controllers);
-}
-
-DetectedControllers DetectLogitechKeyboardG810(hid_device_info* info, const std::string& name)
-{
-    /*-----------------------------------------------------*\
-    | Logitech keyboards use two different usages, one for  |
-    | 20-byte packets and one for 64-byte packets.  Usage   |
-    | 0x0602 for 20 byte, usage 0x0604 for 64 byte, both    |
-    | are on usage page 0xFF43                              |
-    \*-----------------------------------------------------*/
-    DetectedControllers detected_controllers;
-
-    hid_device* dev_usage_0x0602 = nullptr;
-    hid_device* dev_usage_0x0604 = nullptr;
-    hid_device_info* info_temp = info;
-
-    while(info_temp)
-    {
-        if(info_temp->vendor_id        == info->vendor_id           // constant LOGITECH_VID
-        && info_temp->product_id       == info->product_id          // NON-constant
-        && info_temp->interface_number == info->interface_number    // constant 1
-        && info_temp->usage_page       == info->usage_page)         // constant 0xFF43
-        {
-            if(info_temp->usage == 0x0602)
-            {
-                dev_usage_0x0602 = hid_open_path(info_temp->path);
-            }
-            else if(info_temp->usage == 0x0604)
-            {
-                dev_usage_0x0604 = hid_open_path(info_temp->path);
-            }
-        }
-        if(dev_usage_0x0602 && dev_usage_0x0604)
-        {
-            break;
-        }
-        info_temp = info_temp->next;
-    }
-    if(dev_usage_0x0602 && dev_usage_0x0604)
-    {
-        LogitechG810Controller*     controller     = new LogitechG810Controller(dev_usage_0x0602, dev_usage_0x0604, info->path, name);
-        RGBController_LogitechG810* rgb_controller = new RGBController_LogitechG810(controller);
-
-        detected_controllers.push_back(rgb_controller);
-    }
-    else
-    {
-        // Not all of them could be opened, do some cleanup
-        hid_close(dev_usage_0x0602);
-        hid_close(dev_usage_0x0604);
-    }
-
-    return(detected_controllers);
-}
-
-DetectedControllers DetectLogitechKeyboardG910(hid_device_info* info, const std::string& name)
-{
-    /*-----------------------------------------------------*\
-    | Logitech keyboards use two different usages, one for  |
-    | 20-byte packets and one for 64-byte packets.  Usage   |
-    | 0x0602 for 20 byte, usage 0x0604 for 64 byte, both    |
-    | are on usage page 0xFF43                              |
-    \*-----------------------------------------------------*/
-    DetectedControllers detected_controllers;
-
-    hid_device* dev_usage_0x0602 = nullptr;
-    hid_device* dev_usage_0x0604 = nullptr;
-    hid_device_info* info_temp = info;
-
-    while(info_temp)
-    {
-        if(info_temp->vendor_id        == info->vendor_id           // constant LOGITECH_VID
-        && info_temp->product_id       == info->product_id          // NON-constant
-        && info_temp->interface_number == info->interface_number    // constant 1
-        && info_temp->usage_page       == info->usage_page)         // constant 0xFF43
-        {
-            if(info_temp->usage == 0x0602)
-            {
-                dev_usage_0x0602 = hid_open_path(info_temp->path);
-            }
-            else if(info_temp->usage == 0x0604)
-            {
-                dev_usage_0x0604 = hid_open_path(info_temp->path);
-            }
-        }
-        if(dev_usage_0x0602 && dev_usage_0x0604)
-        {
-            break;
-        }
-        info_temp = info_temp->next;
-    }
-    if(dev_usage_0x0602 && dev_usage_0x0604)
-    {
-        LogitechG910Controller*     controller     = new LogitechG910Controller(dev_usage_0x0602, dev_usage_0x0604, info->path, name);
-        RGBController_LogitechG910* rgb_controller = new RGBController_LogitechG910(controller);
-
-        detected_controllers.push_back(rgb_controller);
-    }
-    else
-    {
-        // Not all of them could be opened, do some cleanup
-        hid_close(dev_usage_0x0602);
-        hid_close(dev_usage_0x0604);
     }
 
     return(detected_controllers);
@@ -431,8 +310,9 @@ DetectedControllers DetectLogitechKeyboardG915Receiver2(hid_device_info* info, c
             {
                 /*-----------------------------------------*\
                 | G915 X family: the unified HID++ 2.0      |
-                | controller handles it. Skip so the C547   |
-                | detector claims it.                       |
+                | controller handles it. Skip so the        |
+                | unified detector, registered after this   |
+                | one, claims it.                           |
                 \*-----------------------------------------*/
                 LOG_DEBUG("[LogitechControllerDetect] 0xC547 G915 X -> unified controller, skipping legacy");
                 hid_close(dev);
@@ -488,59 +368,6 @@ DetectedControllers DetectLogitechKeyboardG915Wired(hid_device_info* info, const
         RGBController_LogitechG915* rgb_controller = new RGBController_LogitechG915(controller, is_tkl);
 
         detected_controllers.push_back(rgb_controller);
-    }
-
-    return(detected_controllers);
-}
-
-DetectedControllers DetectLogitechKeyboardGPro(hid_device_info* info, const std::string& name)
-{
-    /*-----------------------------------------------------*\
-    | Logitech keyboards use two different usages, one for  |
-    | 20-byte packets and one for 64-byte packets.  Usage   |
-    | 0x0602 for 20 byte, usage 0x0604 for 64 byte, both    |
-    | are on usage page 0xFF43                              |
-    \*-----------------------------------------------------*/
-    DetectedControllers detected_controllers;
-
-    hid_device* dev_usage_0x0602 = nullptr;
-    hid_device* dev_usage_0x0604 = nullptr;
-    hid_device_info* info_temp = info;
-
-    while(info_temp)
-    {
-        if(info_temp->vendor_id        == info->vendor_id           // constant LOGITECH_VID
-        && info_temp->product_id       == info->product_id          // NON-constant
-        && info_temp->interface_number == info->interface_number    // constant 1
-        && info_temp->usage_page       == info->usage_page)         // constant 0xFF43
-        {
-            if(info_temp->usage == 0x0602)
-            {
-                dev_usage_0x0602 = hid_open_path(info_temp->path);
-            }
-            else if(info_temp->usage == 0x0604)
-            {
-                dev_usage_0x0604 = hid_open_path(info_temp->path);
-            }
-        }
-        if(dev_usage_0x0602 && dev_usage_0x0604)
-        {
-            break;
-        }
-        info_temp = info_temp->next;
-    }
-    if(dev_usage_0x0602 && dev_usage_0x0604)
-    {
-        LogitechGProKeyboardController*     controller     = new LogitechGProKeyboardController(dev_usage_0x0602, dev_usage_0x0604, name);
-        RGBController_LogitechGProKeyboard* rgb_controller = new RGBController_LogitechGProKeyboard(controller);
-
-        detected_controllers.push_back(rgb_controller);
-    }
-    else
-    {
-        // Not all of them could be opened, do some cleanup
-        hid_close(dev_usage_0x0602);
-        hid_close(dev_usage_0x0604);
     }
 
     return(detected_controllers);
@@ -999,6 +826,16 @@ static bool HIDPP20ClaimDevice(const std::string& device_id)
 }
 
 /*---------------------------------------------------------*\
+| Free the device claim when the device is unplugged        |
+\*---------------------------------------------------------*/
+static bool HIDPP20UnclaimDevice(const std::string& device_id)
+{
+    std::lock_guard<std::mutex> lock(hidpp20_registry_mutex);
+
+    return hidpp20_claimed_devices.erase(device_id);
+}
+
+/*---------------------------------------------------------*\
 | Watchers own threads and a node handle, so they have to   |
 | be stopped before the process exits.                      |
 \*---------------------------------------------------------*/
@@ -1380,7 +1217,7 @@ static bool HIDPP20LookupTarget(const std::string& node_path, uint8_t index, HID
 | lighting; both leave the target on file, so a device      |
 | that was asleep is built when its dongle reports it.      |
 \*---------------------------------------------------------*/
-static RGBController_LogitechHIDPP20* HIDPP20BuildController(const HIDPP20BuildTarget& target)
+static RGBController_LogitechHIDPP20* HIDPP20BuildController(const HIDPP20BuildTarget& target, const std::string& device_id="")
 {
     HIDPP20BuildClaim claim(target.node_path, target.index);
 
@@ -1466,7 +1303,7 @@ static RGBController_LogitechHIDPP20* HIDPP20BuildController(const HIDPP20BuildT
     {
         controller->Initialize();
 
-        RGBController_LogitechHIDPP20* rgb_controller = new RGBController_LogitechHIDPP20(controller);
+        RGBController_LogitechHIDPP20* rgb_controller = new RGBController_LogitechHIDPP20(controller, [device_id](){HIDPP20UnclaimDevice(device_id);});
 
         /*-------------------------------------------------*\
         | Reader and power threads from the start, so we    |
@@ -1569,7 +1406,7 @@ static DetectedControllers HIDPP20Create(hid_device_info* info, const std::strin
 
     HIDPP20RecordTarget(target);
 
-    RGBController_LogitechHIDPP20* rgb_controller = HIDPP20BuildController(target);
+    RGBController_LogitechHIDPP20* rgb_controller = HIDPP20BuildController(target, device_id);
 
     if(rgb_controller != nullptr)
     {
@@ -1684,71 +1521,21 @@ DetectedControllers DetectLogitechHIDPP20(hid_device_info* info, const std::stri
     return(detected);
 }
 
-/*-------------------------------------------------------------------------------------------------------------------------------------*\
-| Unified HID++ 2.0: generic detection. These run only for devices with no *enabled* VID/PID-specific detector, disabling a legacy      |
-| controller in Settings hands its hardware over on the next detection. That is the migration path: no code change, and no risk to a    |
-| device whose legacy controller stays enabled.                                                                                         |
-|                                                                                                                                       |
-| The registrations cover every legacy transport signature:                                                                             |
-|  any interface, 0xFF00 usage 2    standard HID++ long report (modern keyboards/mice, receivers, G915 family, wired Lightspeed mice).  |
-|                                   Usage 2 is the collection we write to, on Windows, the only one that accepts our writes.            |
-|  any interface, 0xFF43 any usage  keyboards (G213/G512/G610/G810/G813/G815/G910/G Pro), the G560 speaker, the                         |
-|                                   G933 headset, and Bluetooth nodes. Not interface-keyed: a Bluetooth node                            |
-|                                   reports interface -1, which is also HID_INTERFACE_ANY, so it can never match.                       |
-|  interface 1, 0xFF00 any usage    older mice whose HID++ collection is not the usage-2 one                                            |
-|  any interface, 0xFFA0 usage 1    Centurion (G522, PRO X 2)                                                                           |
-|                                                                                                                                       |
-| Not covered, deliberately: the G600 (page 0xFF80) and the X56 (own VID) are not HID++ 2.0. A matching non-HID++ node costs one failed |
-| probe, ProbeIdentity changes nothing on the device. Receivers are recognized at runtime: the device probe fails and the pairing table |
-| answers; paired slots follow the same enabled/disabled rule (hidpp20_legacy_wireless_pids).                                           |
-|                                                                                                                                       |
-| udev metadata for the rules generator (VID/PID-generic registrations carry no ids of their own):                                      |
-| DUMMY_DEVICE_DETECTOR("Logitech HID++ 2.0", DetectLogitechHIDPP20, 0x046D, 0xC547 )                                                   |
-| DUMMY_DEVICE_DETECTOR("Logitech G560 Lightsync Speaker", DetectLogitechHIDPP20, 0x046D, 0x0A78 )                                      |
-\*-------------------------------------------------------------------------------------------------------------------------------------*/
-REGISTER_HID_DETECTOR_PU_ONLY ("Logitech HID++ 2.0", DetectLogitechHIDPP20, 0xFF00, 2);
-REGISTER_HID_DETECTOR_P_ONLY  ("Logitech HID++ 2.0", DetectLogitechHIDPP20, 0xFF43);
-REGISTER_HID_DETECTOR_IP_ONLY ("Logitech HID++ 2.0", DetectLogitechHIDPP20, 1, 0xFF00);
-REGISTER_HID_DETECTOR_PU_ONLY ("Logitech HID++ 2.0", DetectLogitechHIDPP20, 0xFFA0, 1);
-
 REGISTER_CUSTOM_UDEV_RULE(logitech_hidpp20, "Logitech HID++ 2.0", "SUBSYSTEM==\"hidraw\", ATTRS{idVendor}==\"046d\", TAG+=\"uaccess\", TAG+=\"Logitech_HID_20\"\nSUBSYSTEM==\"usb\", ATTR{idVendor}==\"046d\", TAG+=\"uaccess\", TAG+=\"Logitech_HID_20\"");
 REGISTER_CUSTOM_UDEV_RULE(logitech_g560, "Logitech G560 Lightsync Speaker", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"046d\", ATTRS{idProduct}==\"0a78\", TAG+=\"uaccess\", TAG+=\"Logitech_G560_Lightsync_Speaker\"");
-REGISTER_CUSTOM_UDEV_RULE(logitech_lightspeed, "Logitech G Lightspeed Receiver", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"046d\", ATTRS{idProduct}==\"c539\", TAG+=\"uaccess\", TAG+=\"Logitech_G_Lightspeed_Receiver\"");
-REGISTER_CUSTOM_UDEV_RULE(logitech_powerplay, "Logitech Powerplay Mat Receiver", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"046d\", ATTRS{idProduct}==\"c53a\", TAG+=\"uaccess\", TAG+=\"Logitech_Powerplay_Mat_Receiver\"");
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------*\
 | Keyboards                                                                                                                                         |
 \*-------------------------------------------------------------------------------------------------------------------------------------------------*/
 REGISTER_HID_DETECTOR_IPU("Logitech G213",                                  DetectLogitechKeyboardG213, LOGITECH_VID, LOGITECH_G213_PID,                    1, 0xFF43, 0x0602);
-REGISTER_HID_DETECTOR_IP ("Logitech G512",                                  DetectLogitechKeyboardG810, LOGITECH_VID, LOGITECH_G512_PID,                    1, 0xFF43);
-REGISTER_HID_DETECTOR_IP ("Logitech G512 RGB",                              DetectLogitechKeyboardG810, LOGITECH_VID, LOGITECH_G512_RGB_PID,                1, 0xFF43);
-REGISTER_HID_DETECTOR_IP ("Logitech G610 Orion",                            DetectLogitechKeyboardG810, LOGITECH_VID, LOGITECH_G610_1_PID,                  1, 0xFF43);
-REGISTER_HID_DETECTOR_IP ("Logitech G610 Orion",                            DetectLogitechKeyboardG810, LOGITECH_VID, LOGITECH_G610_2_PID,                  1, 0xFF43);
-REGISTER_HID_DETECTOR_IP ("Logitech G810 Orion Spectrum",                   DetectLogitechKeyboardG810, LOGITECH_VID, LOGITECH_G810_1_PID,                  1, 0xFF43);
-REGISTER_HID_DETECTOR_IP ("Logitech G810 Orion Spectrum",                   DetectLogitechKeyboardG810, LOGITECH_VID, LOGITECH_G810_2_PID,                  1, 0xFF43);
 REGISTER_HID_DETECTOR_IP ("Logitech G813 RGB Mechanical Gaming Keyboard",   DetectLogitechKeyboardG815, LOGITECH_VID, LOGITECH_G813_PID,                    1, 0xFF43);
 REGISTER_HID_DETECTOR_IP ("Logitech G815 RGB Mechanical Gaming Keyboard",   DetectLogitechKeyboardG815, LOGITECH_VID, LOGITECH_G815_PID,                    1, 0xFF43);
-REGISTER_HID_DETECTOR_IP ("Logitech G910 Orion Spark",                      DetectLogitechKeyboardG910, LOGITECH_VID, LOGITECH_G910_ORION_SPARK_PID,        1, 0xFF43);
-REGISTER_HID_DETECTOR_IP ("Logitech G910 Orion Spectrum",                   DetectLogitechKeyboardG910, LOGITECH_VID, LOGITECH_G910_PID,                    1, 0xFF43);
-REGISTER_HID_DETECTOR_IP ("Logitech G Pro RGB Mechanical Gaming Keyboard",  DetectLogitechKeyboardGPro, LOGITECH_VID, LOGITECH_GPRO_KEYBOARD_1_PID,         1, 0xFF43);
 
 REGISTER_HID_DETECTOR_IPU("Logitech G915 Wireless RGB Mechanical Gaming Keyboard",              DetectLogitechKeyboardG915,      LOGITECH_VID, LOGITECH_G915_RECEIVER_PID,      2, 0xFF00, 2);
 REGISTER_HID_DETECTOR_IPU("Logitech G915 Wireless RGB Mechanical Gaming Keyboard (Receiver 2)", DetectLogitechKeyboardG915Receiver2, LOGITECH_VID, LOGITECH_G915_RECEIVER_2_PID, 2, 0xFF00, 2);
 REGISTER_HID_DETECTOR_IPU("Logitech G915 Wireless RGB Mechanical Gaming Keyboard (Wired)",      DetectLogitechKeyboardG915Wired, LOGITECH_VID, LOGITECH_G915_WIRED_PID,         2, 0xFF00, 2);
 REGISTER_HID_DETECTOR_IPU("Logitech G915TKL Wireless RGB Mechanical Gaming Keyboard",           DetectLogitechKeyboardG915,      LOGITECH_VID, LOGITECH_G915TKL_RECEIVER_PID,   2, 0xFF00, 2);
 REGISTER_HID_DETECTOR_IPU("Logitech G915TKL Wireless RGB Mechanical Gaming Keyboard (Wired)",   DetectLogitechKeyboardG915Wired, LOGITECH_VID, LOGITECH_G915TKL_WIRED_PID,      2, 0xFF00, 2);
-/*---------------------------------------------------------*\
-| C547 carve-out: the legacy G915 Receiver 2 registration   |
-| above makes C547 a VID/PID-specific match, which          |
-| suppresses the generic HID++ 2.0 detector for every C547  |
-| node, including receivers with non-G915 devices paired.   |
-| This specific entry runs after the G915 detector          |
-| (registration order); when that returns nothing, the      |
-| unified pairing-table enumeration takes the receiver.     |
-| Literal PID: the macro token-pastes the object name and   |
-| LOGITECH_G915_RECEIVER_2_PID is already used above.       |
-\*---------------------------------------------------------*/
-REGISTER_HID_DETECTOR_IPU("Logitech HID++ 2.0 (C547 receiver)", DetectLogitechHIDPP20, LOGITECH_VID, 0xC547, 2, 0xFF00, 2);
 /*-------------------------------------------------------------------------------------------------------------------------------------------------*\
 | Mice                                                                                                                                              |
 \*-------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -1942,9 +1729,6 @@ DetectedControllers DetectLogitechWireless(hid_device_info* info, const std::str
 
 /*--------------------------------------------------------------------------------------------------------------------------------------------------*\
 | Lightspeed Devices (Linux Wireless)                                                                                                                |
-|                                                                                                                                                    |
-|    DUMMY_DEVICE_DETECTOR("Logitech G Lightspeed Receiver", DetectLogitechWireless, 0x046D, 0xC539 )                                                |
-|    DUMMY_DEVICE_DETECTOR("Logitech Powerplay Mat Receiver", DetectLogitechWireless, 0x046D, 0xC53A )                                               |
 \*--------------------------------------------------------------------------------------------------------------------------------------------------*/
 REGISTER_HID_DETECTOR_IPU("Logitech G403 Wireless Gaming Mouse",                DetectLogitechWireless,     LOGITECH_VID, LOGITECH_G403_LIGHTSPEED_VIRTUAL_PID,         2, 0xFF00, 2);
 REGISTER_HID_DETECTOR_IPU("Logitech G502 Wireless Gaming Mouse",                DetectLogitechWireless,     LOGITECH_VID, LOGITECH_G502_LIGHTSPEED_VIRTUAL_PID,         2, 0xFF00, 2);
@@ -1955,6 +1739,9 @@ REGISTER_HID_DETECTOR_IPU("Logitech G903 Wireless Gaming Mouse",                
 REGISTER_HID_DETECTOR_IPU("Logitech G903 HERO Wireless Gaming Mouse",           DetectLogitechWireless,     LOGITECH_VID, LOGITECH_G903_LIGHTSPEED_VIRTUAL_HERO_PID,    2, 0xFF00, 2);
 REGISTER_HID_DETECTOR_IPU("Logitech G Pro Wireless Gaming Mouse",               DetectLogitechWireless,     LOGITECH_VID, LOGITECH_G_PRO_WIRELESS_VIRTUAL_PID,          2, 0xFF00, 2);
 REGISTER_HID_DETECTOR_IPU("Logitech Powerplay Mat",                             DetectLogitechWireless,     LOGITECH_VID, LOGITECH_POWERPLAY_MAT_VIRTUAL_PID,           2, 0xFF00, 2);
+
+REGISTER_CUSTOM_UDEV_RULE(logitech_lightspeed, "Logitech G Lightspeed Receiver", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"046d\", ATTRS{idProduct}==\"c539\", TAG+=\"uaccess\", TAG+=\"Logitech_G_Lightspeed_Receiver\"");
+REGISTER_CUSTOM_UDEV_RULE(logitech_powerplay, "Logitech Powerplay Mat Receiver", "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"046d\", ATTRS{idProduct}==\"c53a\", TAG+=\"uaccess\", TAG+=\"Logitech_Powerplay_Mat_Receiver\"");
 
 #endif
 
@@ -1979,3 +1766,31 @@ REGISTER_HID_DETECTOR_IPU("Logitech G733 Gaming Headset",                       
 REGISTER_HID_DETECTOR_IPU("Logitech G733 Gaming Headset",                       DetectLogitechWired,        LOGITECH_VID, LOGITECH_G733_2_PID,                          3, 0xFF43, 514);
 REGISTER_HID_DETECTOR_IPU("Logitech G733 Gaming Headset",                       DetectLogitechWired,        LOGITECH_VID, LOGITECH_G733_3_PID,                          3, 0xFF43, 514);
 REGISTER_HID_DETECTOR_IPU("Logitech G935 Gaming Headset",                       DetectLogitechWired,        LOGITECH_VID, LOGITECH_G935_PID,                            3, 0xFF43, 514);
+
+/*-------------------------------------------------------------------------------------------------------------------------------------*\
+| Unified HID++ 2.0. Keyed to the Logitech VID, so these are specific detectors and no generic detector runs on a Logitech node;        |
+| HID LampArray in particular, which the official app publishes as a virtual device for older boards. Registered last on purpose:       |
+| specific detectors run in registration order and the first to return a controller wins, so a legacy controller keeps its device       |
+| while its detector is enabled, and disabling it in Settings hands the device over on the next detection.                              |
+|                                                                                                                                       |
+| USB, every legacy transport signature:                                                                                                |
+|  0xFF00 usage 2                   standard HID++ long report (modern keyboards/mice, receivers, G915 family, wired Lightspeed mice).  |
+|                                   Usage 2 is the collection we write to, on Windows, the only one that accepts our writes.            |
+|  0xFF43 any usage                 keyboards (G213/G512/G610/G810/G813/G815/G910/G Pro), the G560 speaker, the G933 headset            |
+|  interface 1, 0xFF00 any usage    older mice whose HID++ collection is not the usage-2 one. No bus key: an interface number           |
+|                                   only exists on USB.                                                                                 |
+|  0xFFA0 usage 1                   Centurion (G522, PRO X 2)                                                                           |
+| Bluetooth, which reports no interface number:                                                                                         |
+|  0xFF43 any usage                 G-series keyboards (G515)                                                                           |
+|  0xFF00 usage 2                   mice, the collection Solaar drives them on                                                          |
+|                                                                                                                                       |
+| Not covered, deliberately: the G600 (page 0xFF80) and the X56 (own VID) are not HID++ 2.0. A matching non-HID++ node costs one failed |
+| probe, ProbeIdentity changes nothing on the device. Receivers are recognized at runtime: the device probe fails and the pairing table |
+| answers; paired slots follow the same enabled/disabled rule (hidpp20_legacy_wireless_pids).                                           |
+\*-------------------------------------------------------------------------------------------------------------------------------------*/
+REGISTER_HID_DETECTOR_BPU("Logitech HID++ 2.0", DetectLogitechHIDPP20, LOGITECH_VID, HID_PID_ANY, HID_API_BUS_USB,       0xFF00, 2);
+REGISTER_HID_DETECTOR_BP ("Logitech HID++ 2.0", DetectLogitechHIDPP20, LOGITECH_VID, HID_PID_ANY, HID_API_BUS_USB,       0xFF43);
+REGISTER_HID_DETECTOR_IP ("Logitech HID++ 2.0", DetectLogitechHIDPP20, LOGITECH_VID, HID_PID_ANY, 1,                     0xFF00);
+REGISTER_HID_DETECTOR_BPU("Logitech HID++ 2.0", DetectLogitechHIDPP20, LOGITECH_VID, HID_PID_ANY, HID_API_BUS_USB,       0xFFA0, 1);
+REGISTER_HID_DETECTOR_BP ("Logitech HID++ 2.0", DetectLogitechHIDPP20, LOGITECH_VID, HID_PID_ANY, HID_API_BUS_BLUETOOTH, 0xFF43);
+REGISTER_HID_DETECTOR_BPU("Logitech HID++ 2.0", DetectLogitechHIDPP20, LOGITECH_VID, HID_PID_ANY, HID_API_BUS_BLUETOOTH, 0xFF00, 2);

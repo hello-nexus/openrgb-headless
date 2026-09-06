@@ -139,6 +139,46 @@ const char* RESOURCEMANAGER = "ResourceManager";
 \*---------------------------------------------------------*/
 ResourceManager* ResourceManager::instance;
 
+/*---------------------------------------------------------*\
+| Save default Server settings to the settings file if      |
+| they do not already exist in the loaded settings          |
+\*---------------------------------------------------------*/
+static void SaveDefaultServerSettings(SettingsManager* settings_manager)
+{
+    json server_settings    = settings_manager->GetSettings("Server");
+    bool settings_changed   = false;
+
+    if(!server_settings.contains("default_host"))
+    {
+        server_settings["default_host"]     = OPENRGB_SDK_HOST;
+        settings_changed                    = true;
+    }
+
+    if(!server_settings.contains("default_port"))
+    {
+        server_settings["default_port"]     = OPENRGB_SDK_PORT;
+        settings_changed                    = true;
+    }
+
+    if(!server_settings.contains("all_controllers"))
+    {
+        server_settings["all_controllers"]  = false;
+        settings_changed                    = true;
+    }
+
+    if(!server_settings.contains("legacy_workaround"))
+    {
+        server_settings["legacy_workaround"]= false;
+        settings_changed                    = true;
+    }
+
+    if(settings_changed)
+    {
+        settings_manager->SetSettings("Server", server_settings);
+        settings_manager->SaveSettings();
+    }
+}
+
 ResourceManager::ResourceManager()
 {
     /*-----------------------------------------------------*\
@@ -271,6 +311,11 @@ ResourceManager::ResourceManager()
     | Configure the log manager                             |
     \*-----------------------------------------------------*/
     LogManager::get()->Configure(settings_manager->GetSettings("LogManager"), GetConfigurationDirectory());
+
+    /*-----------------------------------------------------*\
+    | Save default Server settings if not present           |
+    \*-----------------------------------------------------*/
+    SaveDefaultServerSettings(settings_manager);
 
     /*-----------------------------------------------------*\
     | Load sizes list from file                             |
@@ -548,6 +593,7 @@ void ResourceManager::SetConfigurationDirectory(const filesystem::path &director
     config_dir = directory;
     settings_manager->LoadSettings(directory / "OpenRGB.json");
     LogManager::get()->Configure(settings_manager->GetSettings("LogManager"), GetConfigurationDirectory());
+    SaveDefaultServerSettings(settings_manager);
     profile_manager->SetConfigurationDirectory(directory);
 }
 
@@ -1153,17 +1199,6 @@ bool ResourceManager::AttemptLocalConnection()
             }
             std::this_thread::sleep_for(5ms);
         }
-
-        /*-------------------------------------------------*\
-        | If local client, set local log level to server's  |
-        | log level and download log entries                |
-        \*-------------------------------------------------*/
-        if(auto_connection_client->GetLocal() && auto_connection_client->GetSupportsLogManagerAPI())
-        {
-            unsigned int log_level = auto_connection_client->LogManager_GetLogLevel();
-            LogManager::get()->SetLogLevel(log_level, true);
-            auto_connection_client->LogManager_GetLogBuffer();
-        }
     }
 
     return success;
@@ -1201,6 +1236,35 @@ void ResourceManager::Initialize(bool tryConnect, bool detectDevices, bool start
             auto_connection_active  = true;
             detection_enabled       = false;
 
+            /*---------------------------------------------*\
+            | If local client, set local log level to       |
+            | server's log level and download log entries   |
+            \*---------------------------------------------*/
+            if(auto_connection_client->GetLocal() && auto_connection_client->GetSupportsLogManagerAPI())
+            {
+                /*-----------------------------------------*\
+                | Reconfigure local log manager using       |
+                | remote settings                           |
+                \*-----------------------------------------*/
+                LogManager::get()->Configure(settings_manager->GetSettings("LogManager"), GetConfigurationDirectory());
+
+                /*-----------------------------------------*\
+                | Update local log manager log level from   |
+                | the server's log level                    |
+                \*-----------------------------------------*/
+                unsigned int log_level = auto_connection_client->LogManager_GetLogLevel();
+                LogManager::get()->SetLogLevel(log_level, true);
+
+                /*-----------------------------------------*\
+                | Download the server's buffered log        |
+                | entries                                   |
+                \*-----------------------------------------*/
+                auto_connection_client->LogManager_GetLogBuffer();
+            }
+
+            /*---------------------------------------------*\
+            | Update the profile list                       |
+            \*---------------------------------------------*/
             profile_manager->UpdateProfileList();
         }
 

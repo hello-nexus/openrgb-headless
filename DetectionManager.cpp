@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <fstream>
 #include <future>
+#include <set>
 #include <system_error>
 #include <thread>
 #include "DetectionManager.h"
@@ -119,6 +120,8 @@ bool BasicHIDBlock::compare(hid_device_info* info)
          || (usage      == info->usage))
         && ((interface  == HID_INTERFACE_ANY)
          || (interface  == info->interface_number))
+        && ((bus        == HID_BUS_ANY)
+         || (bus        == (int)info->bus_type))
         );
 }
 
@@ -264,10 +267,11 @@ void DetectionManager::RegisterI2CBusDetector(I2CBusDetectorFunction detector)
 /*---------------------------------------------------------*\
 | RGBController Detector Registration Functions             |
 \*---------------------------------------------------------*/
-void DetectionManager::RegisterDeviceDetector(std::string name, DeviceDetectorFunction detector)
+void DetectionManager::RegisterDeviceDetector(std::string name, DeviceDetectorFunction detector, bool enabled_by_default)
 {
     device_detector_strings.push_back(name);
     device_detectors.push_back(detector);
+    device_detector_default_enabled.push_back(enabled_by_default);
 }
 
 void DetectionManager::RegisterDynamicDetector(std::string name, DynamicDetectorFunction detector)
@@ -276,17 +280,19 @@ void DetectionManager::RegisterDynamicDetector(std::string name, DynamicDetector
     dynamic_detectors.push_back(detector);
 }
 
-void DetectionManager::RegisterHIDDeviceDetector(std::string name, HIDDeviceDetectorFunction  detector, int vid, int pid, int interface, int usage_page, int usage)
+void DetectionManager::RegisterHIDDeviceDetector(std::string name, HIDDeviceDetectorFunction  detector, int vid, int pid, int interface, int usage_page, int usage, bool enabled_by_default, int bus)
 {
     HIDDeviceDetectorBlock block;
 
-    block.name          = name;
-    block.vid           = vid;
-    block.pid           = pid;
-    block.function      = detector;
-    block.interface     = interface;
-    block.usage_page    = usage_page;
-    block.usage         = usage;
+    block.name                  = name;
+    block.vid                   = vid;
+    block.pid                   = pid;
+    block.function              = detector;
+    block.interface             = interface;
+    block.usage_page            = usage_page;
+    block.usage                 = usage;
+    block.bus                   = bus;
+    block.enabled_by_default    = enabled_by_default;
 
     if(block.vid == HID_VID_ANY && block.pid == HID_PID_ANY)
     {
@@ -298,17 +304,19 @@ void DetectionManager::RegisterHIDDeviceDetector(std::string name, HIDDeviceDete
     }
 }
 
-void DetectionManager::RegisterHIDWrappedDeviceDetector(std::string name, HIDWrappedDeviceDetectorFunction  detector, int vid, int pid, int interface, int usage_page, int usage)
+void DetectionManager::RegisterHIDWrappedDeviceDetector(std::string name, HIDWrappedDeviceDetectorFunction  detector, int vid, int pid, int interface, int usage_page, int usage, bool enabled_by_default, int bus)
 {
     HIDWrappedDeviceDetectorBlock block;
 
-    block.name          = name;
-    block.vid           = vid;
-    block.pid           = pid;
-    block.function      = detector;
-    block.interface     = interface;
-    block.usage_page    = usage_page;
-    block.usage         = usage;
+    block.name                  = name;
+    block.vid                   = vid;
+    block.pid                   = pid;
+    block.function              = detector;
+    block.interface             = interface;
+    block.usage_page            = usage_page;
+    block.usage                 = usage;
+    block.bus                   = bus;
+    block.enabled_by_default    = enabled_by_default;
 
     if(block.vid == HID_VID_ANY && block.pid == HID_PID_ANY)
     {
@@ -320,35 +328,38 @@ void DetectionManager::RegisterHIDWrappedDeviceDetector(std::string name, HIDWra
     }
 }
 
-void DetectionManager::RegisterI2CDeviceDetector(std::string name, I2CDeviceDetectorFunction detector)
+void DetectionManager::RegisterI2CDeviceDetector(std::string name, I2CDeviceDetectorFunction detector, bool enabled_by_default)
 {
     i2c_device_detector_strings.push_back(name);
     i2c_device_detectors.push_back(detector);
+    i2c_device_detector_default_enabled.push_back(enabled_by_default);
 }
 
-void DetectionManager::RegisterI2CDRAMDeviceDetector(std::string name, I2CDRAMDeviceDetectorFunction detector, uint16_t jedec_id, uint8_t dram_type)
+void DetectionManager::RegisterI2CDRAMDeviceDetector(std::string name, I2CDRAMDeviceDetectorFunction detector, uint16_t jedec_id, uint8_t dram_type, bool enabled_by_default)
 {
     I2CDRAMDeviceDetectorBlock block;
 
-    block.name          = name;
-    block.function      = detector;
-    block.jedec_id      = jedec_id;
-    block.dram_type     = dram_type;
+    block.name                  = name;
+    block.function              = detector;
+    block.jedec_id              = jedec_id;
+    block.dram_type             = dram_type;
+    block.enabled_by_default    = enabled_by_default;
 
     i2c_dram_device_detectors.push_back(block);
 }
 
-void DetectionManager::RegisterI2CPCIDeviceDetector(std::string name, I2CPCIDeviceDetectorFunction detector, uint16_t ven_id, uint16_t dev_id, uint16_t subven_id, uint16_t subdev_id, uint8_t i2c_addr)
+void DetectionManager::RegisterI2CPCIDeviceDetector(std::string name, I2CPCIDeviceDetectorFunction detector, uint16_t ven_id, uint16_t dev_id, uint16_t subven_id, uint16_t subdev_id, uint8_t i2c_addr, bool enabled_by_default)
 {
     I2CPCIDeviceDetectorBlock block;
 
-    block.name          = name;
-    block.function      = detector;
-    block.ven_id        = ven_id;
-    block.dev_id        = dev_id;
-    block.subven_id     = subven_id;
-    block.subdev_id     = subdev_id;
-    block.i2c_addr      = i2c_addr;
+    block.name                  = name;
+    block.function              = detector;
+    block.ven_id                = ven_id;
+    block.dev_id                = dev_id;
+    block.subven_id             = subven_id;
+    block.subdev_id             = subdev_id;
+    block.i2c_addr              = i2c_addr;
+    block.enabled_by_default    = enabled_by_default;
 
     i2c_pci_device_detectors.push_back(block);
 }
@@ -1629,7 +1640,7 @@ void DetectionManager::RunHIDDetector(hid_device_info* current_hid_device, json&
         const char* manu_name = StringUtils::wchar_to_char(current_hid_device->manufacturer_string);
         const char* prod_name = StringUtils::wchar_to_char(current_hid_device->product_string);
 
-        LOG_DEBUG("[%s] %04X:%04X U=%04X P=0x%04X I=%d - %-25s - %s", DETECTIONMANAGER, current_hid_device->vendor_id, current_hid_device->product_id, current_hid_device->usage, current_hid_device->usage_page, current_hid_device->interface_number, manu_name, prod_name);
+        LOG_DEBUG("[%s] %04X:%04X U=%04X P=0x%04X I=%d B=%d - %-25s - %s", DETECTIONMANAGER, current_hid_device->vendor_id, current_hid_device->product_id, current_hid_device->usage, current_hid_device->usage_page, current_hid_device->interface_number, (int)current_hid_device->bus_type, manu_name, prod_name);
     }
 
     detection_string = "";
@@ -1695,23 +1706,22 @@ void DetectionManager::RunHIDDetector(hid_device_info* current_hid_device, json&
             if(this_device_enabled)
             {
                 /*-----------------------------------------*\
+                | If this was a specific detector, this     |
+                | device VID/PID has at least one specific  |
+                | detector available, so ignore generic     |
+                | detectors.                                |
+                \*-----------------------------------------*/
+                if(!generic_detector)
+                {
+                    skip_generic_detectors = true;
+                }
+
+                /*-----------------------------------------*\
                 | Now compare the detector to see if it     |
                 | should run.                               |
                 \*-----------------------------------------*/
                 if(detector->compare(current_hid_device))
                 {
-                    /*-------------------------------------*\
-                    | A matching specific detector blocks   |
-                    | generic detectors from also running   |
-                    | on this interface, so other           |
-                    | interfaces of the same VID/PID are    |
-                    | unaffected.                           |
-                    \*-------------------------------------*/
-                    if(!generic_detector)
-                    {
-                        skip_generic_detectors = true;
-                    }
-
                     detection_string = detector->name.c_str();
 
                     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
@@ -1750,7 +1760,7 @@ void DetectionManager::RunHIDWrappedDetector(const hidapi_wrapper* wrapper, hid_
         const char* manu_name = StringUtils::wchar_to_char(current_hid_device->manufacturer_string);
         const char* prod_name = StringUtils::wchar_to_char(current_hid_device->product_string);
 
-        LOG_DEBUG("[%s] %04X:%04X U=%04X P=0x%04X I=%d - %-25s - %s", DETECTIONMANAGER, current_hid_device->vendor_id, current_hid_device->product_id, current_hid_device->usage, current_hid_device->usage_page, current_hid_device->interface_number, manu_name, prod_name);
+        LOG_DEBUG("[%s] %04X:%04X U=%04X P=0x%04X I=%d B=%d - %-25s - %s", DETECTIONMANAGER, current_hid_device->vendor_id, current_hid_device->product_id, current_hid_device->usage, current_hid_device->usage_page, current_hid_device->interface_number, (int)current_hid_device->bus_type, manu_name, prod_name);
     }
 
     detection_string = "";
@@ -1816,23 +1826,22 @@ void DetectionManager::RunHIDWrappedDetector(const hidapi_wrapper* wrapper, hid_
             if(this_device_enabled)
             {
                 /*-----------------------------------------*\
+                | If this was a specific detector, this     |
+                | device VID/PID has at least one specific  |
+                | detector available, so ignore generic     |
+                | detectors.                                |
+                \*-----------------------------------------*/
+                if(!generic_detector)
+                {
+                    skip_generic_detectors = true;
+                }
+
+                /*-----------------------------------------*\
                 | Now compare the detector to see if it     |
                 | should run.                               |
                 \*-----------------------------------------*/
                 if(detector->compare(current_hid_device))
                 {
-                    /*-------------------------------------*\
-                    | A matching specific detector blocks   |
-                    | generic detectors from also running   |
-                    | on this interface, so other           |
-                    | interfaces of the same VID/PID are    |
-                    | unaffected.                           |
-                    \*-------------------------------------*/
-                    if(!generic_detector)
-                    {
-                        skip_generic_detectors = true;
-                    }
-
                     detection_string = detector->name.c_str();
 
                     SignalUpdate(DETECTIONMANAGER_UPDATE_REASON_DETECTION_PROGRESS_CHANGED);
@@ -2003,7 +2012,7 @@ void DetectionManager::UpdateDetectorSettings()
 
         if(!(detector_settings.contains("detectors") && detector_settings["detectors"].contains(detection_string)))
         {
-            detector_settings["detectors"][detection_string] = true;
+            detector_settings["detectors"][detection_string] = i2c_device_detector_default_enabled[i2c_detector_idx];
             save_settings = true;
         }
     }
@@ -2018,7 +2027,7 @@ void DetectionManager::UpdateDetectorSettings()
 
         if(!(detector_settings.contains("detectors") && detector_settings["detectors"].contains(detection_string)))
         {
-            detector_settings["detectors"][detection_string] = true;
+            detector_settings["detectors"][detection_string] = i2c_dram_device_detectors[i2c_detector_idx].enabled_by_default;
             save_settings = true;
         }
     }
@@ -2033,7 +2042,7 @@ void DetectionManager::UpdateDetectorSettings()
 
         if(!(detector_settings.contains("detectors") && detector_settings["detectors"].contains(detection_string)))
         {
-            detector_settings["detectors"][detection_string] = true;
+            detector_settings["detectors"][detection_string] = i2c_pci_device_detectors[i2c_pci_detector_idx].enabled_by_default;
             save_settings = true;
         }
     }
@@ -2048,7 +2057,7 @@ void DetectionManager::UpdateDetectorSettings()
 
         if(!(detector_settings.contains("detectors") && detector_settings["detectors"].contains(detection_string)))
         {
-            detector_settings["detectors"][detection_string] = true;
+            detector_settings["detectors"][detection_string] = hid_generic_detectors[hid_detector_idx].enabled_by_default;
             save_settings = true;
         }
     }
@@ -2063,7 +2072,7 @@ void DetectionManager::UpdateDetectorSettings()
 
         if(!(detector_settings.contains("detectors") && detector_settings["detectors"].contains(detection_string)))
         {
-            detector_settings["detectors"][detection_string] = true;
+            detector_settings["detectors"][detection_string] = hid_specific_detectors[hid_detector_idx].enabled_by_default;
             save_settings = true;
         }
     }
@@ -2078,7 +2087,7 @@ void DetectionManager::UpdateDetectorSettings()
 
         if(!(detector_settings.contains("detectors") && detector_settings["detectors"].contains(detection_string)))
         {
-            detector_settings["detectors"][detection_string] = true;
+            detector_settings["detectors"][detection_string] = hid_wrapped_generic_detectors[hid_wrapped_detector_idx].enabled_by_default;
             save_settings = true;
         }
     }
@@ -2093,7 +2102,7 @@ void DetectionManager::UpdateDetectorSettings()
 
         if(!(detector_settings.contains("detectors") && detector_settings["detectors"].contains(detection_string)))
         {
-            detector_settings["detectors"][detection_string] = true;
+            detector_settings["detectors"][detection_string] = hid_wrapped_specific_detectors[hid_wrapped_detector_idx].enabled_by_default;
             save_settings = true;
         }
     }
@@ -2108,9 +2117,81 @@ void DetectionManager::UpdateDetectorSettings()
 
         if(!(detector_settings.contains("detectors") && detector_settings["detectors"].contains(detection_string)))
         {
-            detector_settings["detectors"][detection_string] = true;
+            detector_settings["detectors"][detection_string] = device_detector_default_enabled[detector_idx];
             save_settings = true;
         }
+    }
+
+    /*-----------------------------------------------------*\
+    | Loop through the existing detector settings and       |
+    | remove any detectors that no longer exist in the      |
+    | registered detector lists.                            |
+    \------------------------------------------------------*/
+    if(detector_settings.contains("detectors") && detector_settings["detectors"].is_object())
+    {
+        std::set<std::string> active_detector_names;
+
+        /*-------------------------------------------------*\
+        | Collect all currently registered detector names   |
+        \--------------------------------------------------*/
+        for(std::size_t i2c_detector_idx = 0; i2c_detector_idx < i2c_device_detector_strings.size(); i2c_detector_idx++)
+        {
+            active_detector_names.insert(i2c_device_detector_strings[i2c_detector_idx]);
+        }
+
+        for(std::size_t i2c_detector_idx = 0; i2c_detector_idx < i2c_dram_device_detectors.size(); i2c_detector_idx++)
+        {
+            active_detector_names.insert(i2c_dram_device_detectors[i2c_detector_idx].name);
+        }
+
+        for(std::size_t i2c_pci_detector_idx = 0; i2c_pci_detector_idx < i2c_pci_device_detectors.size(); i2c_pci_detector_idx++)
+        {
+            active_detector_names.insert(i2c_pci_device_detectors[i2c_pci_detector_idx].name);
+        }
+
+        for(std::size_t hid_detector_idx = 0; hid_detector_idx < hid_generic_detectors.size(); hid_detector_idx++)
+        {
+            active_detector_names.insert(hid_generic_detectors[hid_detector_idx].name);
+        }
+
+        for(std::size_t hid_detector_idx = 0; hid_detector_idx < hid_specific_detectors.size(); hid_detector_idx++)
+        {
+            active_detector_names.insert(hid_specific_detectors[hid_detector_idx].name);
+        }
+
+        for(std::size_t hid_wrapped_detector_idx = 0; hid_wrapped_detector_idx < hid_wrapped_generic_detectors.size(); hid_wrapped_detector_idx++)
+        {
+            active_detector_names.insert(hid_wrapped_generic_detectors[hid_wrapped_detector_idx].name);
+        }
+
+        for(std::size_t hid_wrapped_detector_idx = 0; hid_wrapped_detector_idx < hid_wrapped_specific_detectors.size(); hid_wrapped_detector_idx++)
+        {
+            active_detector_names.insert(hid_wrapped_specific_detectors[hid_wrapped_detector_idx].name);
+        }
+
+        for(std::size_t detector_idx = 0; detector_idx < device_detector_strings.size(); detector_idx++)
+        {
+            active_detector_names.insert(device_detector_strings[detector_idx]);
+        }
+
+        /*-------------------------------------------------*\
+        | Remove stale detector entries                     |
+        \--------------------------------------------------*/
+        json active_detectors;
+        for(const nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& element : detector_settings["detectors"].items())
+        {
+            if(active_detector_names.count(element.key()) > 0)
+            {
+                active_detectors[element.key()] = element.value();
+            }
+            else
+            {
+                LOG_INFO("[%s] Removing stale detector \"%s\" from settings", DETECTIONMANAGER, element.key().c_str());
+                save_settings = true;
+            }
+        }
+
+        detector_settings["detectors"] = active_detectors;
     }
 
     /*-----------------------------------------------------*\
@@ -2565,37 +2646,37 @@ bool DetectionManager::WriteUdevRules(FILE* output_file)
     /*-----------------------------------------------------*\
     | Group detectors by name to avoid duplicate headers    |
     \*-----------------------------------------------------*/
-    std::map<std::string, std::vector<std::pair<uint16_t, uint16_t>>> detector_groups;
+    std::map<std::string, std::vector<std::pair<int, int>>> detector_groups;
 
     for(std::size_t detector_idx = 0; detector_idx < hid_specific_detectors.size(); detector_idx++)
     {
         HIDDeviceDetectorBlock& detector = hid_specific_detectors[detector_idx];
 
-        if(detector.vid == HID_VID_ANY || detector.pid == HID_PID_ANY)
+        if(detector.vid == HID_VID_ANY && detector.pid == HID_PID_ANY)
         {
             continue;
         }
 
-        detector_groups[detector.name].push_back({(uint16_t)detector.vid, (uint16_t)detector.pid});
+        detector_groups[detector.name].push_back({detector.vid, detector.pid});
     }
 
     for(std::size_t detector_idx = 0; detector_idx < hid_wrapped_specific_detectors.size(); detector_idx++)
     {
         HIDWrappedDeviceDetectorBlock& detector = hid_wrapped_specific_detectors[detector_idx];
 
-        if(detector.vid == HID_VID_ANY || detector.pid == HID_PID_ANY)
+        if(detector.vid == HID_VID_ANY && detector.pid == HID_PID_ANY)
         {
             continue;
         }
 
         std::string group_name = detector.name;
-        detector_groups[group_name].push_back({(uint16_t)detector.vid, (uint16_t)detector.pid});
+        detector_groups[group_name].push_back({detector.vid, detector.pid});
     }
 
     /*-----------------------------------------------------*\
     | Write grouped HID device rules                        |
     \*-----------------------------------------------------*/
-    for(const std::pair<const std::string, std::vector<std::pair<uint16_t, uint16_t>>>& group : detector_groups)
+    for(const std::pair<const std::string, std::vector<std::pair<int, int>>>& group : detector_groups)
     {
         fprintf(output_file, "#---------------------------------------------------------------#\n");
         fprintf(output_file, "#  %s\n", group.first.c_str());
@@ -2603,9 +2684,21 @@ bool DetectionManager::WriteUdevRules(FILE* output_file)
 
         std::string device_name_tag = UdevDeviceNameToTag(group.first);
 
-        for(const std::pair<uint16_t, uint16_t>& vid_pid : group.second)
+        for(const std::pair<int, int>& vid_pid : group.second)
         {
-            fprintf(output_file, "SUBSYSTEMS==\"usb|hidraw\", ATTRS{idVendor}==\"%04x\", ATTRS{idProduct}==\"%04x\", TAG+=\"uaccess\", TAG+=\"%s\"\n", vid_pid.first, vid_pid.second, device_name_tag.c_str());
+            fprintf(output_file, "SUBSYSTEMS==\"usb|hidraw\", ");
+
+            if(vid_pid.first >= 0)
+            {
+                fprintf(output_file, "ATTRS{idVendor}==\"%04x\", ", vid_pid.first);
+            }
+
+            if(vid_pid.second >= 0)
+            {
+                fprintf(output_file, "ATTRS{idProduct}==\"%04x\", ", vid_pid.second);
+            }
+
+            fprintf(output_file, "TAG+=\"uaccess\", TAG+=\"%s\"\n", device_name_tag.c_str());
         }
         fprintf(output_file, "\n");
     }
