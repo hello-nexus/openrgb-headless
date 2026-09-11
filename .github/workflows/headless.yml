@@ -83,6 +83,32 @@ jobs:
             Write-Error "PawnIO modules missing from bundle: $($missing -join ', '). Check OpenRGB.pro copydata step."
             exit 1
           }
+          # The exe, hidapi and libusb link the MSVC runtime dynamically
+          # (msvcp140 + vcruntime140*) and nothing on our side installs the
+          # redist, so the machine's copy has to be at least as new as the
+          # toolset that built them; an older msvcp140.dll crashes the daemon
+          # in static init, before main. Ship the toolset's own runtime
+          # app-local: the loader takes the exe's dir first, and the files keep
+          # Microsoft's signature, which the signing sweep leaves in place.
+          # VsDevCmd exports VCToolsRedistDir; the vswhere path covers a runner
+          # image that stops setting it.
+          $redist = $env:VCToolsRedistDir
+          if (-not $redist -or -not (Test-Path $redist)) {
+            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if (-not $vs) { throw "no Visual Studio with the VC x64 toolset on this runner" }
+            $redist = Get-ChildItem "$vs\VC\Redist\MSVC" -Directory | Where-Object { $_.Name -match '^\d' } |
+              Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1 | ForEach-Object FullName
+          }
+          $crt = Get-ChildItem (Join-Path $redist 'x64') -Directory -Filter 'Microsoft.VC*.CRT' -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | Select-Object -First 1 | ForEach-Object FullName
+          if (-not $crt) { throw "MSVC runtime redist not found under '$redist'" }
+          foreach ($dll in 'msvcp140.dll', 'msvcp140_codecvt_ids.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            $path = Join-Path $crt $dll
+            if (-not (Test-Path $path)) { throw "MSVC runtime DLL missing from $crt : $dll" }
+            Copy-Item $path bundle\
+            Write-Host "staged $dll $((Get-Item $path).VersionInfo.FileVersion)"
+          }
           # Re-bundle the LICENSE so GPL §3 redistribution requirements are met
           Copy-Item LICENSE bundle\LICENSE-OpenRGB.txt
           # Tag the build with the source URL
