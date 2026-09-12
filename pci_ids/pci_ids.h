@@ -576,6 +576,8 @@
 #define GAINWARD_RTX_3090TI_PHANTOM                             0xF295
 #define GAINWARD_RTX_4070_GHOST_SUB_DEV                         0xF303
 #define GAINWARD_RTX_4080_PHANTOM_GS_SUB_DEV                    0xF297
+#define GAINWARD_RTX_4090_PHANTOM_SUB_DEV                       0xF297
+#define GAINWARD_RTX_5080_PHOENIX_SUB_DEV                       0xF323
 
 /*-----------------------------------------------------*\
 | GALAX / KFA2 Sub-Device IDs                           |
@@ -886,6 +888,7 @@
 \*-----------------------------------------------------*/
 #define PNY_RTX_2060_XLR8_OC_SUB_DEV                            0x1363
 #define PNY_RTX_3060_XLR8_REVEL_EPIC_X_SUB_DEV                  0x138E
+#define PNY_RTX_3060_XLR8_REVEL_EPIC_X_LHR_SUB_DEV              0x138F
 #define PNY_RTX_3070_XLR8_REVEL_EPIC_X_SUB_DEV                  0x136E
 #define PNY_RTX_3070_XLR8_REVEL_EPIC_X_LHR_SUB_DEV              0x138A
 #define PNY_RTX_3070TI_XLR8_UPRISING_EPIC_X_SUB_DEV             0x138D
