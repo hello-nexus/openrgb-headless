@@ -11,7 +11,7 @@ The device controllers and the SDK protocol are unchanged from upstream.
 | Build | Size |
 |---|---|
 | Upstream OpenRGB Windows portable | ~13 MiB download / ~25 MiB extracted |
-| This fork (Windows x64, with hidapi/libusb/PawnIO DLLs) | **~7.4 MiB** |
+| This fork (Windows x64, with hidapi/libusb/PawnIO DLLs + MSVC runtime) | **~9 MiB** |
 | This fork (Linux x64, dynamic) | **~11 MiB** |
 | This fork (macOS arm64, dynamic, Homebrew dylibs) | **~8.9 MiB** |
 
@@ -117,6 +117,13 @@ jom -j %NUMBER_OF_PROCESSORS%
 
 You still need a Qt5 install for `qmake` itself (it's the build tool), but the
 resulting `OpenRGB.exe` links zero Qt libraries.
+
+The exe (and the hidapi/libusb DLLs) link the MSVC runtime dynamically, so the
+machine needs a Visual C++ redistributable at least as new as the toolset that
+built them; an older `msvcp140.dll` crashes the daemon before `main`. The CI
+artifact sidesteps this by shipping `msvcp140.dll`, `msvcp140_codecvt_ids.dll`,
+`vcruntime140.dll` and `vcruntime140_1.dll` next to the exe (app-local). For a
+local build, copy them from `%VCToolsRedistDir%\x64\Microsoft.VC*.CRT\`.
 
 ### Linux
 
