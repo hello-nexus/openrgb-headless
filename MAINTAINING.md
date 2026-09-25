@@ -218,6 +218,22 @@ Qt's `QtGui` framework, which the headless build no longer links.
 changes on top. They are additive - neither line affects upstream's
 macOS GUI build.
 
+### ENESMBusController.cpp - first-generation fallback for unknown device strings
+
+**What we changed:** in the constructor's final `else` (device string matches
+no known variant), dropped upstream's `led_count = 0` (added in upstream
+05983e2d) and restored the "assume first generation controller" comment.
+
+**Why:** upstream skips a zero-LED controller only in the DRAM detector. The
+motherboard, GPU and XPG S40G detectors still register it, with zones from the
+config table, and `SetAllColorsDirect` then sends `led_count * 3 = 0` bytes: an
+ASUS board or GPU with an unlisted string shows up and ignores every Direct
+frame. Before 05983e2d those chips fell back to V1 registers and worked.
+
+**Conflict resolution:** if upstream edits this `else` branch, keep their
+change but leave `led_count` unset there. Drop this patch once upstream gates
+every ENE detector on `GetLEDCount() > 0` or adds the missing strings.
+
 ## Verifying after a merge
 
 The CI workflow at `.github/workflows/headless.yml` builds Windows, Linux,

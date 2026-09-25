@@ -293,18 +293,14 @@ ENESMBusController::ENESMBusController(ENESMBusInterface* interface, ene_dev_id 
         channel_cfg = ENE_CONFIG_CHANNEL_V2;
     }
     /*-----------------------------------------------------*\
-    | If string does not match any known variants, set LED  |
-    | count to 0 so that controller is not registered.      |
-    | This protects the device against invalid operations   |
-    | if reading the config table or device string were to  |
-    | fail.                                                 |
+    | Assume first generation controller if string does not |
+    | match                                                 |
     \*-----------------------------------------------------*/
     else
     {
         direct_reg  = ENE_REG_COLORS_DIRECT;
         effect_reg  = ENE_REG_COLORS_EFFECT;
         channel_cfg = ENE_CONFIG_CHANNEL_V1;
-        led_count   = 0;
     }
 }
 
