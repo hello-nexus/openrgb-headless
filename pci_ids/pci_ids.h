@@ -590,6 +590,7 @@
 #define KFA2_RTX_2080TI_EX_OC_SUB_DEV                           0x1323
 #define GALAX_RTX_3080_SG_SUB_DEV                               0x1455
 #define GALAX_RTX_3070_1_CLICK_OC_SUB_DEV  			0x146B
+#define KFA2_RTX_4080_SG_OC_SUB_DEV                             0x1795
 #define GALAX_RTX_5070TI_EX_OC_SUB_DEV                          0x205C
 
 /*-----------------------------------------------------*\
@@ -707,6 +708,7 @@
 #define GIGABYTE_RTX4070_AERO_OC_12G_SUB_DEV                    0x40E6
 #define GIGABYTE_RTX4070S_GAMING_OC_12G                         0x4138
 #define GIGABYTE_RTX4070S_AERO_OC_12G                           0x4139
+#define GIGABYTE_RTX4070S_EAGLE_OC_12G                          0x413A
 #define GIGABYTE_RTX4070S_EAGLE_OC_ICE_12G                      0x4148
 #define GIGABYTE_RTX4070TI_GAMING_12G                           0x40DF
 #define GIGABYTE_RTX4070TI_GAMING_OC_12G                        0x40C6
@@ -751,8 +753,8 @@
 #define GIGABYTE_AORUS_RTX5090_MASTER_ICE_32G_SUB_DEV           0x4199
 #define GIGABYTE_AORUS_RTX5090D_MASTER_32G_SUB_DEV              0x4188
 #define GIGABYTE_AORUS_RTX5090D_V2_MASTER_ICE_24G_SUB_DEV       0x41CA
-#define GIGABYTE_RTX5090_XTREME_WATERFORCE_32G_SUB_DEV1         0x4171
-#define GIGABYTE_RTX5090_XTREME_WATERFORCE_32G_SUB_DEV2         0x4172
+#define GIGABYTE_RTX5090_XTREME_WATERFORCE_32G_SUB_DEV          0x4171
+#define GIGABYTE_RTX5090_XTREME_WATERFORCE_WB_32G_SUB_DEV       0x4172
 #define GIGABYTE_RX6700XT_GAMING_OC_12G_SUB_DEV                 0x232D
 #define GIGABYTE_RX6700XT_EAGLE_12G_SUB_DEV                     0x2331
 #define GIGABYTE_AORUS_RX_6750_XT_ELITE_12G_SUB_DEV             0x2407
@@ -912,6 +914,7 @@
 #define PNY_RTX_5070_ARGB_EPIC_X_OC_SUB_DEV                     0x1439
 #define PNY_RTX_5070TI_ARGB_EPIC_X_SUB_DEV                      0x143B
 #define PNY_RTX_5070TI_ARGB_EPIC_X_OC_SUB_DEV                   0x143A
+#define PNY_RTX_5070TI_ARGB_EPIC_X_OC_SUB_DEV2                  0x144A
 #define PNY_RTX_5060TI_ARGB_EPIC_X_OC_SUB_DEV                   0x143E
 #define PNY_RTX_5080_ARGB_EPIC_X_OC_SUB_DEV                     0x1435
 #define PNY_RTX_5090_ARGB_EPIC_X_OC_SUB_DEV                     0x1446
@@ -1002,6 +1005,7 @@
 #define SAPPHIRE_NAVI44_PURE_XT_SUB_DEV                         0x493E
 #define SAPPHIRE_NAVI48_NITRO_PLUS_SUB_DEV                      0xE489
 #define SAPPHIRE_NAVI48_NITRO_PLUS_SUB_DEV1                     0xE493
+#define SAPPHIRE_NAVI48_NITRO_PLUS_SUB_DEV2                     0x4892
 #define SAPPHIRE_NAVI48_PURE_SUB_DEV                            0x4499
 #define SAPPHIRE_NAVI48_PURE_XT_SUB_DEV                         0x3490
 #define SAPPHIRE_NAVI31_GRE_NITRO_PLUS_SUB_DEV                  0xE475
@@ -1026,6 +1030,7 @@
 #define ZOTAC_RTX3090_AMP_SUB_DEV                               0x1619
 #define ZOTAC_RTX3090_TRINITY_SUB_DEV                           0x1613
 #define ZOTAC_RTX4070TI_TRINITY_SUB_DEV                         0x1696
+#define ZOTAC_RTX4070TI_TRINITY_ALT_SUB_DEV                     0x5696
 #define ZOTAC_RTX4080_AMP_SUB_DEV                               0x1688
 #define ZOTAC_RTX4080_AMP_ALT_SUB_DEV                           0x2688
 #define ZOTAC_RTX4090_TRINITY_SUB_DEV                           0x3675
