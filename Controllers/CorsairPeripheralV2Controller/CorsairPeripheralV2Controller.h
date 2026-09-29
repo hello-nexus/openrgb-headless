@@ -124,6 +124,7 @@ private:
     hid_device*                     dev;
 
     uint8_t                         write_cmd           = CORSAIR_V2_WRITE_WIRED_ID;
+    uint16_t                        pkt_sze             = CORSAIR_V2_WRITE_SIZE;
     bool                            skip_reads          = false;
     std::string                     firmware_version;
     std::string                     location;

@@ -68,7 +68,19 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
     buffer[2] = CORSAIR_V2_CMD_GET;
     buffer[3] = 0x11;
     hid_write(dev, buffer, CORSAIR_V2_WRITE_SIZE);
-    hid_read_timeout(dev, buffer, CORSAIR_V2_PACKET_SIZE, CORSAIR_V2_TIMEOUT);
+    int report_len      = hid_read_timeout(dev, buffer, CORSAIR_V2_PACKET_SIZE, CORSAIR_V2_TIMEOUT);
+
+    /*---------------------------------------------------------*\
+    | Devices with reports larger than 64 bytes must be written |
+    |   in full-size packets: a short write is zero padded to   |
+    |   the report length and the device takes that padding as  |
+    |   LED data.                                               |
+    \*---------------------------------------------------------*/
+    if(report_len + 1 > CORSAIR_V2_WRITE_SIZE)
+    {
+        pkt_sze         = (uint16_t)(report_len + 1);
+    }
+    LOG_DEBUG("[%s] Packet length set to %d", device_name.c_str(), pkt_sze);
 
     /*---------------------------------------------------------*\
     | NB: If the device is not found in the device list         |
@@ -120,6 +132,7 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
             case CORSAIR_K100_OPTICAL_V1_PID:
             case CORSAIR_K100_OPTICAL_V2_PID:
             case CORSAIR_K100_MXRED_PID:
+                pkt_sze = CORSAIR_V2_WRITE_SIZE;
                 LOG_DEBUG("[%s] Lighting Endpoint pinned to %02X for K100", device_name.c_str(), light_ctrl);
                 break;
 
@@ -375,9 +388,13 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
     const uint8_t offset2   = 4;
     uint16_t remaining      = data_size;
 
-    uint8_t buffer[CORSAIR_V2_PACKET_SIZE];
+    /*---------------------------------------------------------*\
+    | pkt_sze is a report of up to CORSAIR_V2_PACKET_SIZE bytes |
+    |   plus the report ID                                      |
+    \*---------------------------------------------------------*/
+    uint8_t buffer[CORSAIR_V2_PACKET_SIZE + 1];
     uint8_t response[CORSAIR_V2_PACKET_SIZE];
-    memset(buffer, 0, CORSAIR_V2_PACKET_SIZE);
+    memset(buffer, 0, sizeof(buffer));
     memset(response, 0, CORSAIR_V2_PACKET_SIZE);
 
     ClearPacketBuffer();
@@ -394,7 +411,7 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
     /*---------------------------------------------------------*\
     | Check if the data needs more than 1 packet                |
     \*---------------------------------------------------------*/
-    uint16_t copy_bytes     = CORSAIR_V2_WRITE_SIZE - offset1;
+    uint16_t copy_bytes     = pkt_sze - offset1;
     if(remaining < copy_bytes)
     {
         copy_bytes          = remaining;
@@ -402,7 +419,7 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
 
     memcpy(&buffer[offset1], &data[0], copy_bytes);
 
-    hid_write(dev, buffer, CORSAIR_V2_WRITE_SIZE);
+    hid_write(dev, buffer, pkt_sze);
 
     if(!skip_reads)
     {
@@ -419,7 +436,7 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
 
     remaining              -= copy_bytes;
     buffer[2]               = CORSAIR_V2_CMD_BLK_WN;
-    copy_bytes              = CORSAIR_V2_WRITE_SIZE - offset2;
+    copy_bytes              = pkt_sze - offset2;
 
     /*---------------------------------------------------------*\
     | Send the remaining packets                                |
@@ -435,7 +452,7 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
 
         memcpy(&buffer[offset2], &data[index], copy_bytes);
 
-        hid_write(dev, buffer, CORSAIR_V2_WRITE_SIZE);
+        hid_write(dev, buffer, pkt_sze);
 
         /*-----------------------------------------------------*\
         | Pace the transfer: the device does not acknowledge    |
