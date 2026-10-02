@@ -65,24 +65,9 @@ Everything that's not GUI-bound:
 ## Fork additions
 
 - **Detector timeout**: every detector runs under a 5 s timeout; one that times
-  out or throws is skipped and a zero-LED `RGBController_Dummy` named after the
-  detector is registered, so SDK clients can tell "seen but not drivable" from
-  "absent".
-- **Placeholder-only detectors**: the `Detectors` settings section accepts a
-  `placeholder_only` string array. A detector that is both disabled via
-  `detectors` and listed in `placeholder_only` never opens matched hardware,
-  but still registers a zero-LED dummy carrying the HID identity (name, vendor,
-  serial, `HID: <path>` location) when a matching device is present, so the
-  embedding host can list the device while another RGB stack drives it. Applies
-  to the HID-family and DIMM detectors, where hardware presence is confirmed
-  before the detector would run; plain I2C / I2C-PCI / "other" detectors get
-  ordinary disable semantics with no placeholder.
-
-  ```json
-  { "Detectors": { "detectors": { "Corsair K55 RGB PRO": false },
-                   "placeholder_only": [ "Corsair K55 RGB PRO" ] } }
-  ```
-
+  out or throws is skipped and logged, so a single wedged device cannot stall
+  the detection pass (or every later rescan, which is a no-op while a pass is
+  still running).
 - **Detector map**: at the end of every detection pass the server writes
   `detector-map.json` into the configuration directory, mapping each detected
   device name to the `REGISTER_*_DETECTOR` name that produced it. The SDK
