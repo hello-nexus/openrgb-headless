@@ -202,6 +202,28 @@ frame. Before 05983e2d those chips fell back to V1 registers and worked.
 change but leave `led_count` unset there. Drop this patch once upstream gates
 every ENE detector on `GetLEDCount() > 0` or adds the missing strings.
 
+### RGBController.h - reentrant AccessMutex
+
+**What we changed:** `AccessMutex` is a `ReentrantSharedMutex`
+(`RGBController/ReentrantSharedMutex.h`) instead of a `std::shared_mutex`. It
+has the same four operations; a thread that already holds the mutex (shared or
+exclusive) re-acquires it as a counter bump.
+
+**Why:** `DeviceCallThreadFunction()` holds `AccessMutex` shared around
+`DeviceUpdateLEDs()`, and controllers such as ENE call `GetActiveMode()` from
+there, which takes it shared again. When a network `UpdateLEDs` is already
+queued for the exclusive lock, `std::shared_mutex` (Windows SRW, macOS)
+blocks the nested shared acquire behind the writer, and that controller never
+updates again. Measured on an ENE DDR4 kit streamed at 30 fps: one stick
+deadlocked within minutes while its twin on the same SMBus kept working.
+
+**Conflict resolution:** keep our type on the `AccessMutex` line in
+`RGBController.h` and the header in `OpenRGB.pro`. Call sites need nothing:
+they only use `lock`, `unlock`, `lock_shared` and `unlock_shared`.
+
+**Upstream PR candidate:** Yes. Drop this patch once upstream stops taking
+`AccessMutex` recursively.
+
 ## Verifying after a merge
 
 The CI workflow at `.github/workflows/headless.yml` builds Windows, Linux,

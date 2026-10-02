@@ -64,6 +64,10 @@ Everything that's not GUI-bound:
 
 ## Fork additions
 
+- **Reentrant controller lock**: a controller's state mutex may be re-acquired
+  by a thread that already holds it. Upstream's `std::shared_mutex` deadlocks a
+  controller whose LED update calls a locking getter while a network update
+  waits for the lock (seen on ENE DRAM under a 30 fps stream).
 - **Detector timeout**: every detector runs under a 5 s timeout; one that times
   out or throws is skipped and logged, so a single wedged device cannot stall
   the detection pass (or every later rescan, which is a no-op while a pass is
