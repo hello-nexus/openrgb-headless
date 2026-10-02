@@ -361,6 +361,7 @@
 #define ASUS_TUF_RTX_5060_O8G_GAMING                            0x8A1A
 #define ASUS_TUF_RTX_5060TI_O16G_GAMING                         0x8A08
 #define ASUS_TUF_RTX_5070_O12G_GAMING                           0x89F2
+#define ASUS_ROG_STRIX_RTX_5070_O12G_GAMING                     0x8A18
 #define ASUS_TUF_RTX_5070TI_O16G_GAMING                         0x89F4
 #define ASUS_TUF_RTX_5070TI_O16G_GAMING_BTF_WHITE               0x8A37
 #define ASUS_TUF_RTX_5070TI_O16G_GAMING_WHITE                   0x8A0C
@@ -720,6 +721,7 @@
 #define GIGABYTE_RTX4070TI_MASTER_12G                           0x40BB
 #define GIGABYTE_RTX4070TI_ELITE_12G                            0x40C9
 #define GIGABYTE_RTX4070TIS_EAGLE_OC_16G_SUB_DEV                0x413E
+#define GIGABYTE_RTX4070TIS_AERO_OC_16G_SUB_DEV                 0x413F
 #define GIGABYTE_RTX4070TIS_GAMING_OC_16G_SUB_DEV               0x413C
 #define GIGABYTE_RTX4080_AERO_OC_SUB_DEV                        0x40C5
 #define GIGABYTE_RTX4080_EAGLE_OC_SUB_DEV                       0x40BE
@@ -860,6 +862,7 @@
 #define MSI_RTX4090_SUPRIM_LIQUID_X_SUB_DEV                     0x5104
 #define MSI_RTX4090_SUPRIM_X_SUB_DEV                            0x5102
 #define MSI_RTX4090_SUPRIM_X_CLASSIC_SUB_DEV                    0x5105
+#define MSI_RTX5060TI_GAMING_OC_SUB_DEV                         0x5354
 #define MSI_RTX5070_GAMING_TRIO_SUB_DEV                         0x5322
 #define MSI_RTX5070TI_GAMING_TRIO_SUB_DEV                       0x5315
 #define MSI_RTX5070TI_VANGUARD_SOC_SUB_DEV                      0X5314
@@ -893,6 +896,7 @@
 #define PNY_RTX_3060_XLR8_REVEL_EPIC_X_LHR_SUB_DEV              0x138F
 #define PNY_RTX_3070_XLR8_REVEL_EPIC_X_SUB_DEV                  0x136E
 #define PNY_RTX_3070_XLR8_REVEL_EPIC_X_LHR_SUB_DEV              0x138A
+#define PNY_RTX_3070TI_XLR8_REVEL_EPIC_X_SUB_DEV               0x138C
 #define PNY_RTX_3070TI_XLR8_UPRISING_EPIC_X_SUB_DEV             0x138D
 #define PNY_RTX_3080_XLR8_REVEL_EPIC_X_SUB_DEV                  0x136B
 #define PNY_RTX_3080TI_XLR8_REVEL_EPIC_X_SUB_DEV                0x1385
