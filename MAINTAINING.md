@@ -224,6 +224,26 @@ they only use `lock`, `unlock`, `lock_shared` and `unlock_shared`.
 **Upstream PR candidate:** Yes. Drop this patch once upstream stops taking
 `AccessMutex` recursively.
 
+### NetworkServer.cpp - listen-thread wakeups
+
+**What we changed:** the per-controller and ProfileManager listen threads wait
+on `start_cv` with a predicate (`ListenThreadHasWork`: queue not empty, or
+told to stop), release `start_mutex` as soon as they wake, and every notify
+goes through `WakeListenThread`, which takes `start_mutex` before notifying.
+
+**Why:** the threads waited with no predicate and producers notified without
+`start_mutex`, so a notify between a thread's queue check and its wait was
+lost. A queued packet then waited for the next packet to the same controller,
+and a lost shutdown notify left `SetControllers()` hanging in `join()` with
+`controller_threads_mutex` held, which stalls every client.
+
+**Conflict resolution:** keep the two helpers above
+`RGBController_UpdateCallback`, the predicate waits, and `WakeListenThread`
+at every notify site; a new listen thread or enqueue site follows the same
+pattern.
+
+**Upstream PR candidate:** Yes.
+
 ## Verifying after a merge
 
 The CI workflow at `.github/workflows/headless.yml` builds Windows, Linux,

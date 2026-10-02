@@ -68,6 +68,9 @@ Everything that's not GUI-bound:
   by a thread that already holds it. Upstream's `std::shared_mutex` deadlocks a
   controller whose LED update calls a locking getter while a network update
   waits for the lock (seen on ENE DRAM under a 30 fps stream).
+- **No lost listen-thread wakeups**: the SDK server's per-controller threads
+  can no longer miss a wakeup, which left a packet waiting for the next one to
+  that controller, or hung a rescan in `join()` and stalled every client.
 - **Detector timeout**: every detector runs under a 5 s timeout; one that times
   out or throws is skipped and logged, so a single wedged device cannot stall
   the detection pass (or every later rescan, which is a no-op while a pass is
