@@ -19,7 +19,6 @@
 #include <system_error>
 #include <thread>
 #include "DetectionManager.h"
-#include "RGBController_Dummy.h"
 #include "JsonUtils.h"
 #include "LogManager.h"
 #include "pci_ids.h"
@@ -1000,129 +999,36 @@ void DetectionManager::BackgroundDetectI2CBuses()
 static const unsigned int DETECTOR_TIMEOUT_MS = 5000;
 
 /*-------------------------------------------------------------------------*\
-| When a detector fails (timeout or exception) we still want the client to  |
-| know a device was found but could not be driven. We return an empty       |
-| RGBController_Dummy with the detector's name and nothing else - no zones, |
-| no modes, no LEDs, no segments. The SDK ships it to the client like any   |
-| other controller; the client uses "zero zones / zero LEDs" as the signal  |
-| that this entry is a detection failure, and informs the user the device   |
-| was seen but is not available.                                            |
-\*-------------------------------------------------------------------------*/
-/*-------------------------------------------------------------------------*\
-| The identity fields on RGBController are protected, so the placeholder     |
-| sets them from its own constructor rather than after construction.         |
-\*-------------------------------------------------------------------------*/
-class PlaceholderController : public RGBController_Dummy
-{
-public:
-    PlaceholderController(const char* detector_name, hid_device_info* info)
-    {
-        name        = detector_name;
-        type        = DEVICE_TYPE_UNKNOWN;
-        version     = "";
-        serial      = "";
-        location    = "";
-
-        if(info != NULL)
-        {
-            vendor      = StringUtils::wchar_to_char(info->manufacturer_string);
-            description = StringUtils::wchar_to_char(info->product_string);
-            serial      = StringUtils::wchar_to_char(info->serial_number);
-            location    = std::string("HID: ") + (info->path ? info->path : "");
-        }
-    }
-};
-
-/*-------------------------------------------------------------------------*\
-| When a detector fails (timeout or exception) we still want the client to  |
-| know a device was found but could not be driven. We return an empty       |
-| controller with the detector's name and nothing else - no zones, no       |
-| modes, no LEDs, no segments. The SDK ships it to the client like any      |
-| other controller; the client uses "zero zones / zero LEDs" as the signal  |
-| that this entry is a detection failure, and informs the user the device   |
-| was seen but is not available.                                            |
-\*-------------------------------------------------------------------------*/
-static RGBController* MakeDetectionFailurePlaceholder(const char* detector_name)
-{
-    return(new PlaceholderController(detector_name, NULL));
-}
-
-/*-------------------------------------------------------------------------*\
-| Placeholder-only detectors ("Detectors" -> "placeholder_only" name list): |
-| the detector is disabled (device never opened, no keepalives, no packets  |
-| sent) but matched hardware is still reported to SDK clients as a zero-LED |
-| dummy carrying the HID identity, so a host can show the device as present |
-| while another RGB stack drives it. Registered at the detector gates where |
-| hardware presence is already confirmed (HID match / DIMM JEDEC match);    |
-| presence-probing detector families (plain I2C, I2C PCI, "other") get      |
-| plain disable semantics with no placeholder.                              |
-\*-------------------------------------------------------------------------*/
-static RGBController* MakePlaceholderOnlyDevice(const char* detector_name, hid_device_info* info)
-{
-    return(new PlaceholderController(detector_name, info));
-}
-
-/*-------------------------------------------------------------------------*\
-| True when the named detector is listed in "placeholder_only". Read from   |
-| the settings json on each gate rather than cached, so the rescan and      |
-| hotplug paths observe an edit without a restart.                          |
-\*-------------------------------------------------------------------------*/
-static bool IsPlaceholderOnlyDetector(json& detector_settings, const std::string& detector_name)
-{
-    if(!detector_settings.contains("placeholder_only") || !detector_settings["placeholder_only"].is_array())
-    {
-        return(false);
-    }
-
-    for(const json& placeholder_entry : detector_settings["placeholder_only"])
-    {
-        if(placeholder_entry.is_string() && placeholder_entry.get<std::string>() == detector_name)
-        {
-            return(true);
-        }
-    }
-
-    return(false);
-}
-
-/*-------------------------------------------------------------------------*\
 | Runs one detector on a worker thread and abandons it if it overruns the   |
-| timeout, so a single wedged device cannot stall the whole detection run.  |
-| A detector that throws or times out yields a failure placeholder instead  |
-| of its controllers. A timed-out worker is detached deliberately: it may   |
-| still be blocked in a driver call, so joining it would reintroduce the    |
-| stall this exists to prevent.                                             |
+| timeout, so a single wedged device cannot stall the whole detection run   |
+| (a stalled run also turns every later rescan into a no-op). A detector    |
+| that throws or times out yields no controllers. A timed-out worker is     |
+| detached deliberately: it may still be blocked in a driver call, so       |
+| joining it would reintroduce the stall this exists to prevent.            |
 \*-------------------------------------------------------------------------*/
 DetectedControllers DetectionManager::RunDetectorWithTimeout(
     std::function<DetectedControllers()> fn,
     std::string                          name,
     unsigned int                         timeout_ms)
 {
-    /*---------------------------------------------------------*\
-    | The bool is "the detector ran to completion", NOT "it     |
-    | found something". An empty result from a detector that    |
-    | returned normally is the common no-match case and must    |
-    | stay empty; only a throw or a timeout yields a            |
-    | placeholder.                                              |
-    \*---------------------------------------------------------*/
-    auto done   = std::make_shared<std::promise<std::pair<bool, DetectedControllers>>>();
+    auto done   = std::make_shared<std::promise<DetectedControllers>>();
     auto future = done->get_future();
 
     std::thread worker([done, fn, name_copy = name]()
     {
         try
         {
-            done->set_value(std::make_pair(true, fn()));
+            done->set_value(fn());
         }
         catch(const std::exception& e)
         {
             LOG_ERROR("[%s] detector threw: %s", name_copy.c_str(), e.what());
-            done->set_value(std::make_pair(false, DetectedControllers()));
+            done->set_value(DetectedControllers());
         }
         catch(...)
         {
             LOG_ERROR("[%s] detector threw unknown exception", name_copy.c_str());
-            done->set_value(std::make_pair(false, DetectedControllers()));
+            done->set_value(DetectedControllers());
         }
     });
 
@@ -1130,28 +1036,20 @@ DetectedControllers DetectionManager::RunDetectorWithTimeout(
     {
         worker.join();
 
-        std::pair<bool, DetectedControllers> result = future.get();
+        DetectedControllers result = future.get();
 
-        if(!result.first)
-        {
-            result.second.push_back(MakeDetectionFailurePlaceholder(name.c_str()));
-        }
-
-        for(RGBController* controller : result.second)
+        for(RGBController* controller : result)
         {
             controller->detector_name = name;
         }
 
-        return(result.second);
+        return(result);
     }
 
     LOG_ERROR("[%s] detector timed out after %u ms, skipping device", name.c_str(), timeout_ms);
     worker.detach();
 
-    DetectedControllers timed_out;
-    timed_out.push_back(MakeDetectionFailurePlaceholder(name.c_str()));
-    timed_out[0]->detector_name = name;
-    return(timed_out);
+    return(DetectedControllers());
 }
 
 void DetectionManager::BackgroundDetectI2CDevices(json& detector_settings)
@@ -1266,10 +1164,6 @@ void DetectionManager::BackgroundDetectI2CDRAMDevices(json& detector_settings)
                         {
                             RegisterRGBController(detected_controllers[detected_controller_idx]);
                         }
-                    }
-                    else if(IsPlaceholderOnlyDetector(detector_settings, detection_string))
-                    {
-                        RegisterRGBController(MakePlaceholderOnlyDevice(detection_string.c_str(), NULL));
                     }
 
                     LOG_TRACE("[%s] %s detection end", DETECTIONMANAGER, detection_string.c_str());
@@ -1435,10 +1329,6 @@ void DetectionManager::BackgroundDetectHIDDevicesSafe(json& detector_settings)
                     {
                         RegisterRGBController(detected_controllers[detected_controller_idx]);
                     }
-                }
-                else if(IsPlaceholderOnlyDetector(detector_settings, detection_string))
-                {
-                    RegisterRGBController(MakePlaceholderOnlyDevice(detection_string.c_str(), current_hid_device));
                 }
 
                 LOG_TRACE("[%s] %s detection end", DETECTIONMANAGER, detection_string.c_str());
@@ -1745,10 +1635,6 @@ void DetectionManager::RunHIDDetector(hid_device_info* current_hid_device, json&
                     }
                 }
             }
-            else if(IsPlaceholderOnlyDetector(detector_settings, detection_string))
-            {
-                RegisterRGBController(MakePlaceholderOnlyDevice(detection_string.c_str(), current_hid_device));
-            }
         }
     }
 }
@@ -1860,10 +1746,6 @@ void DetectionManager::RunHIDWrappedDetector(const hidapi_wrapper* wrapper, hid_
                         break;
                     }
                 }
-            }
-            else if(IsPlaceholderOnlyDetector(detector_settings, detection_string))
-            {
-                RegisterRGBController(MakePlaceholderOnlyDevice(detection_string.c_str(), current_hid_device));
             }
         }
     }
