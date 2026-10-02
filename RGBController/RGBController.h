@@ -19,6 +19,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include "RGBControllerInterface.h"
+#include "ReentrantSharedMutex.h"
 
 class RGBController : public RGBControllerInterface
 {
@@ -281,7 +282,7 @@ protected:
     | (modes, colors, zones) from being written to while    |
     | readers are accessing the data.                       |
     \*-----------------------------------------------------*/
-    std::shared_mutex       AccessMutex;
+    ReentrantSharedMutex    AccessMutex;
 
     /*-----------------------------------------------------*\
     | Device mutex variables                                |

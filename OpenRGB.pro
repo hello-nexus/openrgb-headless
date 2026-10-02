@@ -183,6 +183,7 @@ HEADERS +=                                                                      
     AutoStart/AutoStart.h                                                                       \
     KeyboardLayoutManager/KeyboardLayoutManager.h                                               \
     RGBController/RGBController.h                                                               \
+    RGBController/ReentrantSharedMutex.h                                                        \
     RGBController/RGBController_Dummy.h                                                         \
     RGBController/RGBControllerKeyNames.h                                                       \
     RGBController/RGBController_Network.h                                                       \
