@@ -143,6 +143,31 @@ NetworkClientInfo::~NetworkClientInfo()
     }
 }
 
+/*---------------------------------------------------------*\
+| A listen thread has work when its queue holds a packet or |
+| it has been told to stop.                                 |
+\*---------------------------------------------------------*/
+static bool ListenThreadHasWork(NetworkServerControllerThread* thread)
+{
+    std::lock_guard<std::mutex> queue_lock(thread->queue_mutex);
+
+    return(!thread->queue.empty() || !thread->online);
+}
+
+/*---------------------------------------------------------*\
+| Wake a listen thread. Taking start_mutex before notifying |
+| orders the notify after the thread's work check, so the   |
+| wakeup cannot land between that check and its wait.       |
+\*---------------------------------------------------------*/
+static void WakeListenThread(NetworkServerControllerThread* thread)
+{
+    {
+        std::lock_guard<std::mutex> start_lock(thread->start_mutex);
+    }
+
+    thread->start_cv.notify_all();
+}
+
 static void RGBController_UpdateCallback(void* this_ptr, unsigned int update_reason, void* controller_ptr)
 {
     NetworkServer* this_obj = (NetworkServer*)this_ptr;
@@ -625,7 +650,7 @@ void NetworkServer::StopServer()
     if(profilemanager_thread)
     {
         profilemanager_thread->online = false;
-        profilemanager_thread->start_cv.notify_all();
+        WakeListenThread(profilemanager_thread);
         profilemanager_thread->thread->join();
         delete profilemanager_thread->thread;
         delete profilemanager_thread;
@@ -791,7 +816,7 @@ void NetworkServer::SetControllers(std::vector<RGBController *> new_controllers)
     for(std::size_t controller_thread_old_idx = 0; controller_thread_old_idx < controller_threads_old.size(); controller_thread_old_idx++)
     {
         controller_threads_old[controller_thread_old_idx]->online   = false;
-        controller_threads_old[controller_thread_old_idx]->start_cv.notify_all();
+        WakeListenThread(controller_threads_old[controller_thread_old_idx]);
         controller_threads_old[controller_thread_old_idx]->thread->join();
         delete controller_threads_old[controller_thread_old_idx]->thread;
     }
@@ -1086,7 +1111,8 @@ void NetworkServer::ControllerListenThread(NetworkServerControllerThread* this_t
         if(!controller_updating)
         {
             std::unique_lock<std::mutex> start_lock(this_thread->start_mutex);
-            this_thread->start_cv.wait(start_lock);
+            this_thread->start_cv.wait(start_lock, [this_thread]{ return(ListenThreadHasWork(this_thread)); });
+            start_lock.unlock();
 
             while(this_thread->queue.size() > 0)
             {
@@ -1146,7 +1172,8 @@ void NetworkServer::ProfileManagerListenThread(NetworkServerControllerThread* th
     while(this_thread->online == true)
     {
         std::unique_lock<std::mutex> start_lock(this_thread->start_mutex);
-        this_thread->start_cv.wait(start_lock);
+        this_thread->start_cv.wait(start_lock, [this_thread]{ return(ListenThreadHasWork(this_thread)); });
+        start_lock.unlock();
 
         while(this_thread->queue.size() > 0)
         {
@@ -1418,7 +1445,7 @@ void NetworkServer::ListenThreadFunction(NetworkClientInfo* client_info)
 
                     profilemanager_thread->queue.push(new_entry);
                     profilemanager_thread->queue_mutex.unlock();
-                    profilemanager_thread->start_cv.notify_all();
+                    WakeListenThread(profilemanager_thread);
 
                     delete_data = false;
                 }
@@ -1530,7 +1557,7 @@ void NetworkServer::ListenThreadFunction(NetworkClientInfo* client_info)
 
                         controller_threads[controller_thread_idx]->queue.push(new_entry);
                         controller_threads[controller_thread_idx]->queue_mutex.unlock();
-                        controller_threads[controller_thread_idx]->start_cv.notify_all();
+                        WakeListenThread(controller_threads[controller_thread_idx]);
 
                         delete_data = false;
                     }
