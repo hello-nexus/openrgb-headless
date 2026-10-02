@@ -2,14 +2,15 @@
 | ReentrantSharedMutex.h                                    |
 |                                                           |
 |   A shared mutex a thread may re-acquire while it already |
-|   holds it. Windows SRW locks (std::shared_mutex) deadlock |
-|   when a thread takes a shared lock it already holds while |
-|   a writer is queued, which happens when a controller's    |
-|   DeviceUpdateLEDs() calls a locking getter such as        |
-|   GetActiveMode() under the device thread's shared lock    |
-|   and a network UpdateLEDs waits for the exclusive lock.   |
+|   holds it. std::shared_mutex deadlocks (Windows SRW and  |
+|   macOS) when a thread takes a shared lock it already     |
+|   holds while a writer is queued, which happens when a    |
+|   controller's DeviceUpdateLEDs() calls a locking getter  |
+|   such as GetActiveMode() under the device thread's       |
+|   shared lock while a network UpdateLEDs waits for the    |
+|   exclusive lock.                                         |
 |                                                           |
-|   Upgrading a held shared lock to exclusive still blocks,  |
+|   Upgrading a held shared lock to exclusive still blocks, |
 |   exactly as with std::shared_mutex.                      |
 |                                                           |
 |   This file is part of the OpenRGB project                |
@@ -24,6 +25,25 @@
 class ReentrantSharedMutex
 {
 public:
+    /*-----------------------------------------------------*\
+    | RGBController::Shutdown() locks and never unlocks, so |
+    | drop this thread's record before a later object at    |
+    | the same address inherits it                          |
+    \*-----------------------------------------------------*/
+    ~ReentrantSharedMutex()
+    {
+        std::vector<Hold>& holds = Holds();
+
+        for(std::size_t idx = 0; idx < holds.size(); idx++)
+        {
+            if(holds[idx].owner == this)
+            {
+                holds.erase(holds.begin() + idx);
+                break;
+            }
+        }
+    }
+
     void lock()
     {
         Hold& hold = Find();
