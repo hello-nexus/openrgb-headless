@@ -107,24 +107,25 @@ When upstream merges touch `OpenRGB.pro`:
    their changes. We use the same hardware backends.
 6. **Upstream changed CLI flags** in `cli.cpp`: take their changes. We support
    the same CLI surface; our `startup/startup.cpp` ignores GUI-only flags.
+7. **Upstream's precompiled header** (`CONFIG += precompile_header`,
+   `PRECOMPILED_HEADER`): leave it out. It only speeds up builds; the headless
+   `.pro` builds without it (CI: Windows and Linux).
 
 ## Fork-specific patches (not upstream-identical)
 
-### ResourceManager.cpp - detector exception safety + per-detector timeouts
+### DetectionManager.cpp - detector exception safety + per-detector timeouts
 
 **What we changed:**
 
 1. Added `#include <future>` to the includes.
-2. Added a static helper `RunDetectorWithTimeout(fn, name, timeout_ms)` and
-   constant `DETECTOR_TIMEOUT_MS = 5000` defined just above
-   `DetectDevicesCoroutine()`. The helper runs the detector callback on a
-   worker thread; if it doesn't return within `timeout_ms`, the helper logs
-   the timeout, detaches the thread, and returns. Exceptions are also caught
-   and logged.
-3. Replaced all 8 raw detector-invocation sites in `DetectDevicesCoroutine()`
-   with calls to `RunDetectorWithTimeout([&]() { <original call>; }, ...)`.
-   Sites: I2C device, I2C DIMM, I2C PCI, HID safe-mode, HID normal, HID
-   wrapped (normal), HID wrapped (libusb/Linux), and miscellaneous device.
+2. Added `DetectionManager::RunDetectorWithTimeout(fn, name, timeout_ms)`
+   (`fn` is a `std::function<DetectedControllers()>`) and the constant
+   `DETECTOR_TIMEOUT_MS = 5000`. The helper runs the detector on a worker
+   thread and returns its controllers; on a throw or a timeout it logs once
+   and returns an empty list, detaching a timed-out worker.
+3. Wrapped the 7 detector-invocation sites: I2C device, I2C DIMM, I2C PCI,
+   HID safe-mode, HID (`RunHIDDetector`), HID wrapped (`RunHIDWrappedDetector`,
+   both wrappers), and miscellaneous device.
 
 **Why:** Upstream's detection loop runs detectors sequentially with no fault
 isolation. Two failure modes break the entire detection pass:
@@ -142,18 +143,21 @@ The timeout/exception helper isolates each detector. Failures log a single
 `LOG_ERROR` and the next detector still runs.
 
 **Detached-thread caveat:** A timed-out worker thread is detached, not killed
-(C++ has no portable thread-cancel). It continues holding its HID handle
-until the underlying syscall returns. This is acceptable: the alternative is
-the entire detection pass blocking forever.
+(C++ has no portable thread-cancel). It keeps its device handle until the
+blocking call returns; whatever it detects afterwards is never registered unless
+the detector registers from inside its own body (its returned controllers are
+not freed), and the `[&]` captures at the call sites still
+point at the caller's loop state. The alternative is the whole pass blocking
+forever.
 
 **Conflict resolution:** If upstream touches one of the detector-invocation
 lines, merge their change into the body of the lambda. The helper signature
 stays the same. Pattern:
 
 ```cpp
-RunDetectorWithTimeout(
-    [&]() { <upstream's detector call>; },
-    detection_string,
+DetectedControllers detected_controllers = RunDetectorWithTimeout(
+    [&]() { return(<upstream's detector call>); },
+    detection_string.c_str(),
     DETECTOR_TIMEOUT_MS);
 ```
 

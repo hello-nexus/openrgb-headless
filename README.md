@@ -68,7 +68,8 @@ Everything that's not GUI-bound:
   out or throws is skipped and logged, so a single wedged device cannot stall
   the detection pass (or every later rescan, which is a no-op while a pass is
   still running).
-- **Detector map**: at the end of every detection pass the server writes
+- **Detector map**: at the end of every detection pass, and whenever a
+  controller is added or removed (hotplug), the server writes
   `detector-map.json` into the configuration directory, mapping each detected
   device name to the `REGISTER_*_DETECTOR` name that produced it. The SDK
   device description carries only the device name, and the two differ wherever
