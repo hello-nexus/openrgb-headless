@@ -71,6 +71,9 @@ Everything that's not GUI-bound:
 - **No lost listen-thread wakeups**: the SDK server's per-controller threads
   can no longer miss a wakeup, which left a packet waiting for the next one to
   that controller, or hung a rescan in `join()` and stalled every client.
+- **Stable ASRock channel order**: ASRock Polychrome USB zones take their R/G
+  order from the `RGSwap` settings only, so a header no longer shows red for
+  green on alternate boots.
 - **Detector timeout**: every detector runs under a 5 s timeout; one that times
   out or throws is skipped and logged, so a single wedged device cannot stall
   the detection pass (or every later rescan, which is a no-op while a pass is

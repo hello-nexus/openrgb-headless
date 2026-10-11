@@ -244,6 +244,23 @@ pattern.
 
 **Upstream PR candidate:** Yes.
 
+### ASRockPolychromeUSBController.cpp - RGSwap from settings only
+
+**What we changed:** `SetDeviceInfo()` takes each zone's `rgswap` from the
+`RGSwap` settings alone (read on the first run too, after the defaults are
+written) instead of `hardware bit || setting`, and logs a warning when the
+hardware bit is set but the setting is off.
+
+**Why:** Direct mode writes 0 to the hardware RGSwap register and swaps R and
+G in software from the flag latched at detection. The register's value at
+detection varied from boot to boot, so a board's ARGB header showed red for
+green on alternate boots (Z790 Taichi Lite, Addressable Header 3/Audio).
+
+**Conflict resolution:** keep the unconditional settings read loop and
+`newdev_info.rgswap = rgswapconfig[zonecnt]`.
+
+**Upstream PR candidate:** Yes.
+
 ## Verifying after a merge
 
 The CI workflow at `.github/workflows/headless.yml` builds Windows, Linux,
