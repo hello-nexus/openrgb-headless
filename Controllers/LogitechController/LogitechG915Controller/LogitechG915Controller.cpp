@@ -65,19 +65,19 @@ std::string LogitechG915Controller::GetSerialString()
     return(StringUtils::wstring_to_string(serial_string));
 }
 
-void LogitechG915Controller::Commit()
+bool LogitechG915Controller::Commit()
 {
-    SendCommit();
+    return(SendCommit());
 }
 
-void LogitechG915Controller::SetDirect
+bool LogitechG915Controller::SetDirect
     (
     unsigned char       frame_type,
     unsigned char *     frame_data,
     size_t              length
     )
 {
-    SendDirectFrame(frame_type, frame_data, length);
+    return(SendDirectFrame(frame_type, frame_data, length));
 }
 
 void LogitechG915Controller::SetMode
@@ -126,7 +126,7 @@ void LogitechG915Controller::SetMode
 | Private packet sending functions.                                                                 |
 \*-------------------------------------------------------------------------------------------------*/
 
-void LogitechG915Controller::SendCommit()
+bool LogitechG915Controller::SendCommit()
 {
     unsigned char usb_buf[MESSAGE_LEN];
 
@@ -147,7 +147,7 @@ void LogitechG915Controller::SendCommit()
     | Send packet                                           |
     \*-----------------------------------------------------*/
     hid_write(dev_handle, usb_buf, MESSAGE_LEN);
-    hid_read_timeout(dev_handle, usb_buf, RESPONSE_LEN, LOGITECH_READ_TIMEOUT);
+    return(hid_read_timeout(dev_handle, usb_buf, RESPONSE_LEN, LOGITECH_READ_TIMEOUT) > 0);
 }
 
 void LogitechG915Controller::BeginModeSet()
@@ -316,7 +316,7 @@ void LogitechG915Controller::SendSingleLed
     SendDirectFrame(LOGITECH_G915_ZONE_FRAME_TYPE_LITTLE, little_frame, 4);
 }
 
-void LogitechG915Controller::SendDirectFrame
+bool LogitechG915Controller::SendDirectFrame
     (
     unsigned char       frame_type,
     unsigned char *     frame_data,
@@ -325,7 +325,7 @@ void LogitechG915Controller::SendDirectFrame
 {
     if(length < MIN_DATA_FRAME_SIZE)
     {
-        return;
+        return(true);
     }
     else if(length > MAX_DATA_FRAME_SIZE)
     {
@@ -356,7 +356,7 @@ void LogitechG915Controller::SendDirectFrame
     | Send packet                                           |
     \*-----------------------------------------------------*/
     hid_write(dev_handle, usb_buf, MESSAGE_LEN);
-    hid_read_timeout(dev_handle, usb_buf, RESPONSE_LEN, LOGITECH_READ_TIMEOUT);
+    return(hid_read_timeout(dev_handle, usb_buf, RESPONSE_LEN, LOGITECH_READ_TIMEOUT) > 0);
 }
 
 void LogitechG915Controller::SendMode

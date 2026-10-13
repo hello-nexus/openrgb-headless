@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include "RGBController.h"
 #include "LogitechG915Controller.h"
 
@@ -33,4 +34,5 @@ private:
 
     LogitechG915Controller* controller;
     std::vector<RGBColor>   current_colors;
+    std::chrono::steady_clock::time_point last_full_send;
 };

@@ -20,6 +20,12 @@ const size_t DATA_FRAME_SIZE        = 16;
 const size_t BIG_FRAME_MAX_KEYS     = 13;
 const size_t LITTLE_FRAME_MAX_KEYS  = 4;
 
+/*---------------------------------------------------------*\
+| Just under the interval at which Nexus re-pushes an       |
+| unchanged frame, so jitter cannot skip every other one.   |
+\*---------------------------------------------------------*/
+const std::chrono::milliseconds FULL_RESEND_INTERVAL(900);
+
 static unsigned int matrix_map[7][27] =
     { {  93, NA,  NA,  NA, NA, NA, NA, NA, NA, NA, 94, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA,  NA,  NA,  NA,  NA },
       {  NA, NA,  37,  NA, 54, 55, 56, 57, NA, 58, 59, 60, 61, NA, 62, 63, 64, 65, NA, 66, 67, 68, NA,  89,  90,  91,  92 },
@@ -444,6 +450,16 @@ void RGBController_LogitechG915::DeviceUpdateLEDs()
     std::copy(colors.begin(), colors.end(),std::back_inserter(new_colors));
 
     /*---------------------------------------------------------*\
+    | Waking from power saving restores the onboard profile     |
+    | without telling us, so in Direct mode unchanged keys are  |
+    | still resent periodically or a static layout would never  |
+    | come back.                                                |
+    \*---------------------------------------------------------*/
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    bool full_send = modes[active_mode].value == LOGITECH_G915_MODE_DIRECT
+                  && now - last_full_send >= FULL_RESEND_INTERVAL;
+
+    /*---------------------------------------------------------*\
     | Get unique colors to create mode 1F and 6F frame_buffers  |
     \*---------------------------------------------------------*/
     for(std::size_t led_idx = 0; led_idx < leds.size(); led_idx++)
@@ -451,7 +467,7 @@ void RGBController_LogitechG915::DeviceUpdateLEDs()
         zone = ( leds[led_idx].value >> 8 );
         idx  = ( leds[led_idx].value );
 
-        if(current_colors[led_idx]==new_colors[led_idx])
+        if(!full_send && current_colors[led_idx]==new_colors[led_idx])
         {
             /*-------------------------------------------------*\
             | Don't send if key color is not changed            |
@@ -499,12 +515,6 @@ void RGBController_LogitechG915::DeviceUpdateLEDs()
     {
         return;
     }
-
-    /*-----------------------------------------------------*\
-    | Copy the current color vector to avoid set keys that  |
-    | have not changed                                      |
-    \*-----------------------------------------------------*/
-    std::copy(new_colors.begin(), new_colors.end(),current_colors.begin());
 
     std::vector<LittleFrame> little_frames;
     std::vector<BigFrame> big_frames;
@@ -567,20 +577,45 @@ void RGBController_LogitechG915::DeviceUpdateLEDs()
         little_frames.push_back(std::move(cur_small));
     }
 
+    /*---------------------------------------------------------*\
+    | A sleeping keyboard does not answer. Stop at the first    |
+    | unanswered packet so an attempt costs one read timeout,   |
+    | and keep the old baseline so the frame is sent again.     |
+    \*---------------------------------------------------------*/
     unsigned char frame_buffer[DATA_FRAME_SIZE];
     for(const BigFrame& frame : big_frames)
     {
         size_t length = populate_big_frame_data(frame_buffer, frame);
-        controller->SetDirect(LOGITECH_G915_ZONE_FRAME_TYPE_BIG, frame_buffer, length);
+        if(!controller->SetDirect(LOGITECH_G915_ZONE_FRAME_TYPE_BIG, frame_buffer, length))
+        {
+            return;
+        }
     }
 
     for(const LittleFrame& frame : little_frames)
     {
         size_t length = populate_little_frame_data(frame_buffer, frame);
-        controller->SetDirect(LOGITECH_G915_ZONE_FRAME_TYPE_LITTLE, frame_buffer, length);
+        if(!controller->SetDirect(LOGITECH_G915_ZONE_FRAME_TYPE_LITTLE, frame_buffer, length))
+        {
+            return;
+        }
     }
 
-    controller->Commit();
+    if(!controller->Commit())
+    {
+        return;
+    }
+
+    /*-----------------------------------------------------*\
+    | Copy the current color vector to avoid set keys that  |
+    | have not changed                                      |
+    \*-----------------------------------------------------*/
+    std::copy(new_colors.begin(), new_colors.end(),current_colors.begin());
+
+    if(full_send)
+    {
+        last_full_send = now;
+    }
 }
 
 void RGBController_LogitechG915::DeviceUpdateZoneLEDs(int /*zone*/)

@@ -89,11 +89,11 @@ public:
     std::string GetNameString();
     std::string GetSerialString();
 
-    void        Commit();
+    bool        Commit();
     void        InitializeDirect();
     void        InitializeModeSet();
     void        BeginModeSet();
-    void        SetDirect
+    bool        SetDirect
                     (
                     unsigned char       frame_type,
                     unsigned char *     frame_data,
@@ -125,7 +125,7 @@ private:
     unsigned char   feature_8081_idx;
     std::string     name;
 
-    void        SendDirectFrame
+    bool        SendDirectFrame
                     (
                     unsigned char       frame_type,
                     unsigned char *     frame_data,
@@ -142,5 +142,5 @@ private:
                     unsigned char       green,
                     unsigned char       blue
                     );
-    void        SendCommit();
+    bool        SendCommit();
 };
