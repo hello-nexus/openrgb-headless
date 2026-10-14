@@ -92,6 +92,7 @@ typedef struct
     NetPacketHeader             header;
     unsigned char*              data;
     NetworkClientInfo*          client_info;
+    std::chrono::steady_clock::time_point queued_at;
 } NetworkServerControllerThreadQueueEntry;
 
 typedef struct
@@ -104,6 +105,16 @@ typedef struct
     std::condition_variable                             start_cv;
     std::thread*                                        thread;
     std::atomic<bool>                                   online;
+
+    /*-------------------------------------------------*\
+    | Queue diagnostics, logged every 5 seconds         |
+    \*-------------------------------------------------*/
+    std::string                                         name;
+    unsigned int                                        diag_received;
+    unsigned int                                        diag_applied;
+    std::size_t                                         diag_max_depth;
+    double                                              diag_max_wait_ms;
+    std::chrono::steady_clock::time_point               diag_window_start;
 } NetworkServerControllerThread;
 
 class NetworkServer

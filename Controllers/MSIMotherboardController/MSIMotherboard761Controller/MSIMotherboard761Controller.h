@@ -15,12 +15,43 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstring>
 #include <hidapi.h>
 #include "MSIMotherboardCommon.h"
 #include "RGBController.h"
 
 inline constexpr const char * BOARD_UNSUPPORTED_ERROR =  "No Config Found For Board";
+
+/*---------------------------------------------------------*\
+| Min/avg/max of HID write durations over one log window    |
+\*---------------------------------------------------------*/
+struct MSI761WriteStat
+{
+    unsigned int    count   = 0;
+    double          min_ms  = 0.0;
+    double          max_ms  = 0.0;
+    double          sum_ms  = 0.0;
+
+    void Add(double ms)
+    {
+        if((count == 0) || (ms < min_ms))
+        {
+            min_ms = ms;
+        }
+        if(ms > max_ms)
+        {
+            max_ms = ms;
+        }
+        sum_ms += ms;
+        count++;
+    }
+
+    double Avg() const
+    {
+        return((count > 0) ? (sum_ms / count) : 0.0);
+    }
+};
 
 class MSIMotherboard761Controller
 {
@@ -141,6 +172,18 @@ private:
     unsigned char*                                          setup_data;
     bool                                                    setup_dirty;
     int                                                     numof_pipe1_leds;
+
+    /*-----------------------------------------------------*\
+    | Write timing diagnostics, summarized every 5 seconds  |
+    \*-----------------------------------------------------*/
+    MSI761WriteStat                                         timing_report;
+    MSI761WriteStat                                         timing_update;
+    MSI761WriteStat                                         timing_setup;
+    unsigned int                                            timing_failures;
+    int                                                     timing_last_error;
+    std::chrono::steady_clock::time_point                   timing_window_start;
+
+    void            LogWriteTiming();
 
     bool            ReadSettings();
     bool            ReadFwVersion();

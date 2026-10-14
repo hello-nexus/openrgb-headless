@@ -175,6 +175,11 @@ enum MSI_ZONE setup_map [] =
 
 };
 
+static double ElapsedMs(std::chrono::steady_clock::time_point start)
+{
+    return(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+}
+
 int get_zone_setup_index(MSI_ZONE index)
 {
     int size = sizeof(setup_map) / sizeof(setup_map[0]);
@@ -327,8 +332,24 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
             /*---------------------------------------------*\
             | Push config so setting colors works           |
             \*---------------------------------------------*/
+            std::chrono::steady_clock::time_point setup_start = std::chrono::steady_clock::now();
             int res = hid_send_feature_report(dev, conf_arr, SETUP_ARRAY_SIZE);
+            double setup_ms = ElapsedMs(setup_start);
             LOG_INFO("Sending configuration resulted in %i\n", res);
+
+            /*---------------------------------------------*\
+            | Logged at error level so it reaches the log   |
+            | file under Nexus's --loglevel error           |
+            \*---------------------------------------------*/
+            LOG_ERROR("[MSI761 timing] init (diagnostic, not an error): board %s, %u headers, JPIPE1 LEDs %d (%s), setup report %d bytes took %.1f ms result %i, header report %u bytes",
+                      board_config->name->c_str(),
+                      (unsigned int)supported_zones->size(),
+                      numof_pipe1_leds,
+                      (numof_pipe1_leds == 0) ? "JPIPE1 skipped, every header report sent each update" : "only changed headers sent each update",
+                      SETUP_ARRAY_SIZE,
+                      setup_ms,
+                      res,
+                      (unsigned int)sizeof(FeaturePacket_PerLED_761));
 
             data                        = new FeaturePacket_761;
 
@@ -363,6 +384,10 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
         \*-------------------------------------------------*/
         setup_data  = conf_arr;
         setup_dirty = false;
+
+        timing_failures     = 0;
+        timing_last_error   = 0;
+        timing_window_start = std::chrono::steady_clock::now();
     }
     else
     {
@@ -456,7 +481,21 @@ bool MSIMotherboard761Controller::Update
     bool flag = true;
     FeaturePacket_Zone_761* packets[] = { &data->jaf, &data->jargb1, &data->jargb2, &data->jargb3, &data->jpipe1 };
 
+    std::chrono::steady_clock::time_point update_start = std::chrono::steady_clock::now();
+
+    if(timing_update.count == 0)
+    {
+        timing_window_start = update_start;
+    }
+
+    bool setup_pending = setup_dirty;
+
     SendConfiguration();
+
+    if(setup_pending)
+    {
+        timing_setup.Add(ElapsedMs(update_start));
+    }
 
     /*-----------------------------------------------------*\
     | Only send changed zones on boards with JPIPE1 so     |
@@ -476,8 +515,14 @@ bool MSIMotherboard761Controller::Update
             continue;
         }
 
-        if(hid_send_feature_report(dev, GET_CHAR_PTR_REF(packet->packet), sizeof(FeaturePacket_PerLED_761)) < 0)
+        std::chrono::steady_clock::time_point send_start = std::chrono::steady_clock::now();
+        int res = hid_send_feature_report(dev, GET_CHAR_PTR_REF(packet->packet), sizeof(FeaturePacket_PerLED_761));
+        timing_report.Add(ElapsedMs(send_start));
+
+        if(res < 0)
         {
+            timing_failures++;
+            timing_last_error = res;
             flag = false;
         }
         else
@@ -486,7 +531,55 @@ bool MSIMotherboard761Controller::Update
         }
     }
 
+    timing_update.Add(ElapsedMs(update_start));
+    LogWriteTiming();
+
     return flag;
+}
+
+/*---------------------------------------------------------*\
+| Diagnostic summary of the HID write timing, at most once  |
+| every 5 seconds. Logged at error level so it reaches the  |
+| log file under Nexus's --loglevel error.                  |
+\*---------------------------------------------------------*/
+void MSIMotherboard761Controller::LogWriteTiming()
+{
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    double window_s = std::chrono::duration<double>(now - timing_window_start).count();
+
+    if(window_s < 5.0)
+    {
+        return;
+    }
+
+    LOG_ERROR("[MSI761 timing] (diagnostic, not an error) %u updates in %.1f s (%.1f/s), update ms min/avg/max %.1f/%.1f/%.1f, %u header reports of %u bytes ms min/avg/max %.1f/%.1f/%.1f, %u setup resends of %d bytes max %.1f ms, %u failed writes (last result %d), header LEDs JAF/JARGB1/JARGB2/JARGB3 %u/%u/%u/%u",
+              timing_update.count,
+              window_s,
+              timing_update.count / window_s,
+              timing_update.min_ms,
+              timing_update.Avg(),
+              timing_update.max_ms,
+              timing_report.count,
+              (unsigned int)sizeof(FeaturePacket_PerLED_761),
+              timing_report.min_ms,
+              timing_report.Avg(),
+              timing_report.max_ms,
+              timing_setup.count,
+              SETUP_ARRAY_SIZE,
+              timing_setup.max_ms,
+              timing_failures,
+              timing_last_error,
+              data->jaf.packet.hdr2,
+              data->jargb1.packet.hdr2,
+              data->jargb2.packet.hdr2,
+              data->jargb3.packet.hdr2);
+
+    timing_report       = MSI761WriteStat();
+    timing_update       = MSI761WriteStat();
+    timing_setup        = MSI761WriteStat();
+    timing_failures     = 0;
+    timing_last_error   = 0;
+    timing_window_start = now;
 }
 
 void MSIMotherboard761Controller::SetZoneColor

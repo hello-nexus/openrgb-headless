@@ -797,6 +797,11 @@ void NetworkServer::SetControllers(std::vector<RGBController *> new_controllers)
             new_controller_thread->id                       = controller_ids[controller_id_idx].id;
             new_controller_thread->index                    = (unsigned int)controller_id_idx;
             new_controller_thread->online                   = true;
+            new_controller_thread->name                     = controller_ids[controller_id_idx].controller->GetName();
+            new_controller_thread->diag_received            = 0;
+            new_controller_thread->diag_applied             = 0;
+            new_controller_thread->diag_max_depth           = 0;
+            new_controller_thread->diag_max_wait_ms         = 0.0;
             new_controller_thread->thread                   = new std::thread(&NetworkServer::ControllerListenThread, this, new_controller_thread);
 
             controller_threads[controller_id_idx] = new_controller_thread;
@@ -1100,6 +1105,48 @@ void NetworkServer::ConnectionThreadFunction(int socket_idx)
     SignalServerListeningChanged();
 }
 
+/*---------------------------------------------------------*\
+| Diagnostic summary of a controller's packet queue, at     |
+| most once every 5 seconds, from its listen thread.        |
+| Logged at error level so it reaches the log file under    |
+| Nexus's --loglevel error.                                 |
+\*---------------------------------------------------------*/
+static void LogControllerQueueStats(NetworkServerControllerThread* thread)
+{
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    double window_s = std::chrono::duration<double>(now - thread->diag_window_start).count();
+
+    if(window_s < 5.0)
+    {
+        return;
+    }
+
+    unsigned int    received;
+    std::size_t     max_depth;
+    std::size_t     depth;
+
+    thread->queue_mutex.lock();
+    received                = thread->diag_received;
+    max_depth               = thread->diag_max_depth;
+    depth                   = thread->queue.size();
+    thread->diag_received   = 0;
+    thread->diag_max_depth  = depth;
+    thread->queue_mutex.unlock();
+
+    LOG_ERROR("[%s] queue timing (diagnostic, not an error) %s: %u packets received, %u applied in %.1f s, queue depth max %u now %u, max wait in queue %.1f ms",
+              NETWORKSERVER,
+              thread->name.c_str(),
+              received,
+              thread->diag_applied,
+              window_s,
+              (unsigned int)max_depth,
+              (unsigned int)depth,
+              thread->diag_max_wait_ms);
+
+    thread->diag_applied        = 0;
+    thread->diag_max_wait_ms    = 0.0;
+}
+
 void NetworkServer::ControllerListenThread(NetworkServerControllerThread* this_thread)
 {
     while(this_thread->online == true)
@@ -1123,6 +1170,20 @@ void NetworkServer::ControllerListenThread(NetworkServerControllerThread* this_t
                 queue_entry = this_thread->queue.front();
                 this_thread->queue.pop();
                 this_thread->queue_mutex.unlock();
+
+                std::chrono::steady_clock::time_point dequeued_at = std::chrono::steady_clock::now();
+
+                if(this_thread->diag_applied == 0)
+                {
+                    this_thread->diag_window_start = dequeued_at;
+                }
+
+                double wait_ms = std::chrono::duration<double, std::milli>(dequeued_at - queue_entry.queued_at).count();
+
+                if(wait_ms > this_thread->diag_max_wait_ms)
+                {
+                    this_thread->diag_max_wait_ms = wait_ms;
+                }
 
                 controller_ids_mutex.lock_shared();
 
@@ -1158,6 +1219,9 @@ void NetworkServer::ControllerListenThread(NetworkServerControllerThread* this_t
                 delete[] queue_entry.data;
 
                 SendAck(queue_entry.client_info, queue_entry.header.pkt_dev_id, queue_entry.header.pkt_id, status);
+
+                this_thread->diag_applied++;
+                LogControllerQueueStats(this_thread);
             }
         }
         else
@@ -1554,8 +1618,15 @@ void NetworkServer::ListenThreadFunction(NetworkClientInfo* client_info)
                         new_entry.data                      = data;
                         new_entry.header                    = header;
                         new_entry.client_info               = client_info;
+                        new_entry.queued_at                 = std::chrono::steady_clock::now();
 
                         controller_threads[controller_thread_idx]->queue.push(new_entry);
+                        controller_threads[controller_thread_idx]->diag_received++;
+
+                        if(controller_threads[controller_thread_idx]->queue.size() > controller_threads[controller_thread_idx]->diag_max_depth)
+                        {
+                            controller_threads[controller_thread_idx]->diag_max_depth = controller_threads[controller_thread_idx]->queue.size();
+                        }
                         controller_threads[controller_thread_idx]->queue_mutex.unlock();
                         WakeListenThread(controller_threads[controller_thread_idx]);
 
