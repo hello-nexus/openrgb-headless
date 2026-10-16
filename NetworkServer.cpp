@@ -168,6 +168,14 @@ static void WakeListenThread(NetworkServerControllerThread* thread)
     thread->start_cv.notify_all();
 }
 
+/*---------------------------------------------------------*\
+| The client whose LED write this thread is applying.       |
+| RGBController raises the UpdateLEDs signal synchronously  |
+| inside that write, and the signal is not queued back to   |
+| the client that sent it.                                  |
+\*---------------------------------------------------------*/
+static thread_local NetworkClientInfo* led_write_client = nullptr;
+
 static void RGBController_UpdateCallback(void* this_ptr, unsigned int update_reason, void* controller_ptr)
 {
     NetworkServer* this_obj = (NetworkServer*)this_ptr;
@@ -3182,7 +3190,9 @@ NetPacketStatus NetworkServer::ProcessRequest_RGBController_UpdateLEDs(NetworkCl
     /*-----------------------------------------------------*\
     | Call UpdateLEDs on the given controller               |
     \*-----------------------------------------------------*/
+    led_write_client = client_info;
     controllers[controller_idx]->UpdateLEDs();
+    led_write_client = nullptr;
 
     return(NET_PACKET_STATUS_OK);
 }
@@ -3369,7 +3379,9 @@ NetPacketStatus NetworkServer::ProcessRequest_RGBController_UpdateSingleLED(Netw
     /*-----------------------------------------------------*\
     | Call UpdateSingleLED                                  |
     \*-----------------------------------------------------*/
+    led_write_client = client_info;
     controllers[controller_idx]->UpdateSingleLED(led_idx);
+    led_write_client = nullptr;
 
     return(NET_PACKET_STATUS_OK);
 }
@@ -3469,7 +3481,9 @@ NetPacketStatus NetworkServer::ProcessRequest_RGBController_UpdateZoneLEDs(Netwo
     /*-----------------------------------------------------*\
     | Call UpdateZoneLEDs                                   |
     \*-----------------------------------------------------*/
+    led_write_client = client_info;
     controllers[controller_idx]->UpdateZoneLEDs(zone_idx);
+    led_write_client = nullptr;
 
     return(NET_PACKET_STATUS_OK);
 }
@@ -4211,6 +4225,11 @@ void NetworkServer::SendRequest_RGBController_SignalUpdate(RGBController * contr
         for(std::size_t client_idx = 0; client_idx < ServerClients.size(); client_idx++)
         {
             NetworkClientInfo* client_info = ServerClients[client_idx];
+
+            if((update_reason == RGBCONTROLLER_UPDATE_REASON_UPDATELEDS) && (client_info == led_write_client))
+            {
+                continue;
+            }
 
             if(client_info->client_protocol_version >= 6)
             {
