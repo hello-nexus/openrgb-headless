@@ -105,6 +105,7 @@ RGBController::~RGBController()
         LOG_ERROR("[RGBController] %s: Device thread still active in base class destructor, ensure Shutdown() was called from inherited destructor", name.c_str());
 
         DeviceThreadRunning = false;
+        WakeDeviceCallThread();
         DeviceCallThread->join();
         delete DeviceCallThread;
     }
@@ -1970,6 +1971,7 @@ void RGBController::Shutdown()
     | Stop device thread                                    |
     \*-----------------------------------------------------*/
     DeviceThreadRunning = false;
+    WakeDeviceCallThread();
     DeviceCallThread->join();
     delete DeviceCallThread;
 
@@ -1997,6 +1999,7 @@ void RGBController::Shutdown()
 void RGBController::UpdateLEDs()
 {
     CallFlag_UpdateLEDs = true;
+    WakeDeviceCallThread();
 
     SignalUpdate(RGBCONTROLLER_UPDATE_REASON_UPDATELEDS);
 }
@@ -2026,6 +2029,7 @@ void RGBController::UpdateSingleLED(int led)
 void RGBController::UpdateMode()
 {
     CallFlag_UpdateMode = true;
+    WakeDeviceCallThread();
 
     SignalUpdate(RGBCONTROLLER_UPDATE_REASON_UPDATEMODE);
 }
@@ -2103,9 +2107,31 @@ void RGBController::DeviceCallThreadFunction()
         }
         else
         {
-           std::this_thread::sleep_for(1ms);
+            /*---------------------------------------------*\
+            | Sleep until a flag is set or the thread is    |
+            | stopped. Every setter goes through            |
+            | WakeDeviceCallThread().                       |
+            \*---------------------------------------------*/
+            std::unique_lock<std::mutex> wake_lock(DeviceCallMutex);
+            DeviceCallCV.wait(wake_lock, [this]{ return(CallFlag_UpdateLEDs.load() || CallFlag_UpdateMode.load() || !DeviceThreadRunning.load()); });
         }
     }
+}
+
+/*---------------------------------------------------------*\
+| Wake the device call thread after setting a call flag or  |
+| clearing DeviceThreadRunning. Taking DeviceCallMutex      |
+| before notifying orders the notify after the thread's     |
+| flag check, so the wakeup cannot land between that check  |
+| and its wait.                                             |
+\*---------------------------------------------------------*/
+void RGBController::WakeDeviceCallThread()
+{
+    {
+        std::lock_guard<std::mutex> wake_lock(DeviceCallMutex);
+    }
+
+    DeviceCallCV.notify_one();
 }
 
 void RGBController::ClearSegments(int zone)
@@ -2335,6 +2361,7 @@ void RGBController::SetupColors()
 void RGBController::UpdateLEDsInternal()
 {
     CallFlag_UpdateLEDs = true;
+    WakeDeviceCallThread();
 }
 
 /*---------------------------------------------------------*\

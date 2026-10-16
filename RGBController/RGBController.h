@@ -188,6 +188,7 @@ public:
     void                    SaveMode();
 
     void                    DeviceCallThreadFunction();
+    void                    WakeDeviceCallThread();
 
     void                    ClearSegments(int zone);
     void                    AddSegment(int zone, segment new_segment);
@@ -324,6 +325,8 @@ private:
     std::atomic<bool>       CallFlag_UpdateLEDs;
     std::atomic<bool>       CallFlag_UpdateMode;
     std::atomic<bool>       DeviceThreadRunning;
+    std::mutex              DeviceCallMutex;
+    std::condition_variable DeviceCallCV;
 
     /*-----------------------------------------------------*\
     | Update callback variables                             |
