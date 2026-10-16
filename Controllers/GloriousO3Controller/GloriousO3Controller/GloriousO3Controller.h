@@ -62,6 +62,8 @@ private:
     bool                                    stop;
     bool                                    has_pending;
     Value                                   pending;
+    bool                                    have_target;
+    Value                                   target;
     bool                                    have_sent;
     Value                                   last_sent;
     std::chrono::steady_clock::time_point   last_write;

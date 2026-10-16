@@ -27,6 +27,8 @@ GloriousO3Controller::GloriousO3Controller(hid_device* dev_handle, const char* p
     stop        = false;
     has_pending = false;
     pending     = {false, 0, 0, 0};
+    have_target = false;
+    target      = {false, 0, 0, 0};
     have_sent   = false;
     last_sent   = {false, 0, 0, 0};
     last_write  = std::chrono::steady_clock::now() - GLORIOUS_O3_WRITE_COOLDOWN;
@@ -72,14 +74,16 @@ void GloriousO3Controller::Queue(const Value& value)
         std::lock_guard<std::mutex> lock(mutex);
 
         /*-------------------------------------------------*\
-        | Identical to what the device already shows and    |
-        | nothing newer is waiting: nothing to send         |
+        | Identical to the latest requested value, whether  |
+        | queued, in flight or already sent: nothing to do  |
         \*-------------------------------------------------*/
-        if(!has_pending && have_sent && value == last_sent)
+        if(have_target && value == target)
         {
             return;
         }
 
+        have_target = true;
+        target      = value;
         pending     = value;
         has_pending = true;
     }
@@ -129,6 +133,15 @@ void GloriousO3Controller::WorkerLoop()
             have_sent = true;
             last_sent = value;
         }
+        else if(!has_pending)
+        {
+            /*---------------------------------------------*\
+            | Keep the value for a retry, paced by the      |
+            | cooldown; a newer request replaces it         |
+            \*---------------------------------------------*/
+            pending     = value;
+            has_pending = true;
+        }
     }
 }
 
@@ -137,7 +150,6 @@ bool GloriousO3Controller::SendReport(const Value& value)
     /*-----------------------------------------------------*\
     | Feature report 0x03, 64 bytes, vendor collection      |
     | (usage page 0xFF00, usage 0x0001) of the receiver.    |
-    | Layout taken from a contributor's captured packets.   |
     \*-----------------------------------------------------*/
     unsigned char report[64];
     memset(report, 0x00, sizeof(report));
