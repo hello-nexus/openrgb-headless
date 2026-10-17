@@ -27,6 +27,7 @@ ASRockGPUSMBusController::ASRockGPUSMBusController(i2c_smbus_interface* bus, asr
 
     memset(enabled_channels, 0, sizeof(enabled_channels));
     memset(led_counts, 0, sizeof(led_counts));
+    InvalidateColorCache();
 }
 
 ASRockGPUSMBusController::~ASRockGPUSMBusController()
@@ -174,8 +175,29 @@ bool ASRockGPUSMBusController::DetectChannels()
     return(num_channels > 0);
 }
 
+void ASRockGPUSMBusController::InvalidateColorCache()
+{
+    memset(last_color_valid, 0, sizeof(last_color_valid));
+}
+
 void ASRockGPUSMBusController::SetChannelColor(uint8_t channel_idx, uint8_t red, uint8_t green, uint8_t blue)
 {
+    /*-----------------------------------------------------*\
+    | Every write briefly flashes the LEDs on some cards, so |
+    | skip a color the card already holds. The periodic      |
+    | resend recovers a card that lost its state without the |
+    | daemon noticing, such as a display driver reset        |
+    \*-----------------------------------------------------*/
+    const std::chrono::seconds refresh_interval(30);
+    uint32_t color = ((uint32_t)red << 16) | ((uint32_t)green << 8) | blue;
+    auto     now   = std::chrono::steady_clock::now();
+
+    if(channel_idx < 16 && last_color_valid[channel_idx] && last_color[channel_idx] == color
+       && (now - last_write_time[channel_idx]) < refresh_interval)
+    {
+        return;
+    }
+
     /*-----------------------------------------------------*\
     | SignalRGB color packet                               |
     | Command 0x10, subcommand is the channel index        |
@@ -195,5 +217,18 @@ void ASRockGPUSMBusController::SetChannelColor(uint8_t channel_idx, uint8_t red,
     if(!WriteBlock(0x10, channel_idx, data, sizeof(data)))
     {
         LOG_WARNING("[ASRock GPU] Failed to set color for channel %d", channel_idx);
+
+        if(channel_idx < 16)
+        {
+            last_color_valid[channel_idx] = false;
+        }
+        return;
+    }
+
+    if(channel_idx < 16)
+    {
+        last_color[channel_idx]       = color;
+        last_color_valid[channel_idx] = true;
+        last_write_time[channel_idx]  = now;
     }
 }
