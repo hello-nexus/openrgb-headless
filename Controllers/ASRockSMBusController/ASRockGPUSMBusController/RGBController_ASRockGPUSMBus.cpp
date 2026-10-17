@@ -136,5 +136,6 @@ void RGBController_ASRockGPUSMBus::UpdateSingleLED(int led)
 
 void RGBController_ASRockGPUSMBus::DeviceUpdateMode()
 {
+    controller->InvalidateColorCache();
     DeviceUpdateLEDs();
 }

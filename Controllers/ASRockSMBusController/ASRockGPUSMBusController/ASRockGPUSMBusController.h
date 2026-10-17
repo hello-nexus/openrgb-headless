@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <string>
 #include "i2c_smbus.h"
 
@@ -40,6 +41,7 @@ public:
 
     void        SetChannelColor(uint8_t channel_idx, uint8_t red, uint8_t green, uint8_t blue);
     bool        DetectChannels();
+    void        InvalidateColorCache();
 
     uint8_t     enabled_channels[16];
     uint8_t     led_counts[16];
@@ -49,6 +51,14 @@ private:
     i2c_smbus_interface* bus;
     asrock_gpu_dev_id    dev;
     std::string          device_name;
+
+    /*-----------------------------------------------------*\
+    | Last color written per channel, so an unchanged color |
+    | skips the I2C write. Indexed by channel number        |
+    \*-----------------------------------------------------*/
+    uint32_t             last_color[16];
+    bool                 last_color_valid[16];
+    std::chrono::steady_clock::time_point last_write_time[16];
 
     bool        WriteBlock(uint8_t command, uint8_t subcommand, const uint8_t* data, uint8_t len);
     bool        ReadBlock(uint8_t* response, uint8_t len);
