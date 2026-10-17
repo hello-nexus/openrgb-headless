@@ -13,6 +13,7 @@
 #include <cstring>
 #include "ASRockPolychromeUSBController.h"
 #include "dmiinfo.h"
+#include "LogManager.h"
 #include "ResourceManager.h"
 #include "RGBController.h"
 #include "SettingsManager.h"
@@ -117,14 +118,12 @@ void PolychromeUSBController::SetDeviceInfo()
         settings_manager->SetSettings(detector_name, device_settings);
         settings_manager->SaveSettings();
     }
-    else
+
+    for(std::size_t idx = 0; idx < 8; idx++)
     {
-        for(std::size_t idx = 0; idx < 8; idx++)
+        if(device_settings[json_rgswap].contains(polychrome_USB_zone_names[idx]))
         {
-            if(device_settings[json_rgswap].contains(polychrome_USB_zone_names[idx]))
-            {
-                rgswapconfig[idx] = device_settings[json_rgswap][polychrome_USB_zone_names[idx]];
-            }
+            rgswapconfig[idx] = device_settings[json_rgswap][polychrome_USB_zone_names[idx]];
         }
     }
 
@@ -141,8 +140,18 @@ void PolychromeUSBController::SetDeviceInfo()
             continue;
         }
 
+        /*---------------------------------------------------------*\
+        | Settings alone pick the channel order. Direct mode zeroes |
+        | the hardware RGSwap register, so its bit at detection is  |
+        | not authoritative.                                        |
+        \*---------------------------------------------------------*/
+        if(((configtable[8] >> zonecnt) & 1) && !rgswapconfig[zonecnt])
+        {
+            LOG_WARNING("[ASRock Polychrome USB] %s: hardware RGSwap set, ignored (setting is off)", polychrome_USB_zone_names[zonecnt]);
+        }
+
         newdev_info.num_leds = configtable[zonecnt];
-        newdev_info.rgswap = ((configtable[8] >> zonecnt) & 1) || rgswapconfig[zonecnt];
+        newdev_info.rgswap = rgswapconfig[zonecnt];
         rgswap_final[zonecnt] = newdev_info.rgswap;
 
 		/*--------------------------------------------------------------------------------------------------*\
