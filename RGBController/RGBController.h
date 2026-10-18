@@ -179,6 +179,8 @@ public:
     \*-----------------------------------------------------*/
     void                    Shutdown();
 
+    void                    WaitForDeviceUpdate();
+
     void                    UpdateLEDs();
     void                    UpdateZoneLEDs(int zone);
     void                    UpdateSingleLED(int led);
@@ -324,6 +326,15 @@ private:
     std::atomic<bool>       CallFlag_UpdateLEDs;
     std::atomic<bool>       CallFlag_UpdateMode;
     std::atomic<bool>       DeviceThreadRunning;
+
+    /*-----------------------------------------------------*\
+    | Device update wait variables                          |
+    | WaitForDeviceUpdate() blocks until the device thread  |
+    | has written every queued update to the device         |
+    \*-----------------------------------------------------*/
+    std::mutex              DeviceCallMutex;
+    std::condition_variable DeviceCallDone;
+    bool                    DeviceCallActive;
 
     /*-----------------------------------------------------*\
     | Update callback variables                             |
