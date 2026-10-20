@@ -418,4 +418,15 @@ private:
     std::thread *                                       keepalive_thread;
 
     void KeepaliveThreadFunction();
+
+    /*-----------------------------------------------------------------*\
+    | Razer ARGB controller state: the controller reverts to hardware   |
+    | mode once Synapse lets go of it, so software mode and the channel |
+    | sizes are re-asserted periodically from the update path           |
+    \*-----------------------------------------------------------------*/
+    std::chrono::time_point<std::chrono::steady_clock>  last_argb_assert_time;
+    unsigned char                                       argb_zone_sizes[6];
+    bool                                                argb_zone_sizes_valid;
+
+    void AssertAddressableMode();
 };

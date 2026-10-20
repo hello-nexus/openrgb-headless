@@ -28,6 +28,8 @@ RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_ha
     effect_list_valid = false;
     memset(supported_effects, 0, sizeof(supported_effects));
     wait_for_response = false;
+    memset(argb_zone_sizes, 0, sizeof(argb_zone_sizes));
+    argb_zone_sizes_valid = false;
     guard_manager_ptr = new DeviceGuardManager(new RazerDeviceGuard());
 
     /*-----------------------------------------------------------------*\
@@ -73,6 +75,10 @@ RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_ha
             {
             razer_set_device_mode(RAZER_DEVICE_MODE_SOFTWARE);
             }
+            break;
+
+        case RAZER_CHROMA_ADDRESSABLE_RGB_CONTROLLER_PID:
+            AssertAddressableMode();
             break;
     }
 
@@ -267,9 +273,35 @@ void RazerController::KeepaliveThreadFunction()
 
 void RazerController::SetAddressableZoneSizes(unsigned char zone_1_size, unsigned char zone_2_size, unsigned char zone_3_size, unsigned char zone_4_size, unsigned char zone_5_size, unsigned char zone_6_size)
 {
+    argb_zone_sizes[0]      = zone_1_size;
+    argb_zone_sizes[1]      = zone_2_size;
+    argb_zone_sizes[2]      = zone_3_size;
+    argb_zone_sizes[3]      = zone_4_size;
+    argb_zone_sizes[4]      = zone_5_size;
+    argb_zone_sizes[5]      = zone_6_size;
+    argb_zone_sizes_valid   = true;
+
     razer_report report     = razer_create_addressable_size_report(zone_1_size, zone_2_size, zone_3_size, zone_4_size, zone_5_size, zone_6_size);
 
     razer_usb_send(&report);
+}
+
+void RazerController::AssertAddressableMode()
+{
+    /*-----------------------------------------------------------------*\
+    | Put the controller in software mode and restore the channel sizes |
+    | it may have lost when it fell back to hardware mode               |
+    \*-----------------------------------------------------------------*/
+    razer_set_device_mode(RAZER_DEVICE_MODE_SOFTWARE);
+
+    if(argb_zone_sizes_valid)
+    {
+        razer_report report = razer_create_addressable_size_report(argb_zone_sizes[0], argb_zone_sizes[1], argb_zone_sizes[2], argb_zone_sizes[3], argb_zone_sizes[4], argb_zone_sizes[5]);
+
+        razer_usb_send(&report);
+    }
+
+    last_argb_assert_time = std::chrono::steady_clock::now();
 }
 
 unsigned char RazerController::GetMaxBrightness()
@@ -302,6 +334,12 @@ void RazerController::SetBrightness(unsigned char brightness)
 
 void RazerController::SetLEDs(RGBColor* colors)
 {
+    if(dev_pid == RAZER_CHROMA_ADDRESSABLE_RGB_CONTROLLER_PID
+    && (std::chrono::steady_clock::now() - last_argb_assert_time) > 3s)
+    {
+        AssertAddressableMode();
+    }
+
     /*---------------------------------------------------------*\
     | Get the matrix layout information from the device list    |
     \*---------------------------------------------------------*/
