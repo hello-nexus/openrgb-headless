@@ -17,6 +17,11 @@
 
 using namespace std::chrono_literals;
 
+/*---------------------------------------------------------*\
+| Minimum time between mode checks on the ARGB controller   |
+\*---------------------------------------------------------*/
+static const std::chrono::seconds RAZER_ARGB_ASSERT_INTERVAL = 3s;
+
 RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_handle, const char* path, unsigned short pid, std::string dev_name)
 {
     dev               = dev_handle;
@@ -29,7 +34,6 @@ RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_ha
     memset(supported_effects, 0, sizeof(supported_effects));
     wait_for_response = false;
     memset(argb_zone_sizes, 0, sizeof(argb_zone_sizes));
-    argb_zone_sizes_valid = false;
     guard_manager_ptr = new DeviceGuardManager(new RazerDeviceGuard());
 
     /*-----------------------------------------------------------------*\
@@ -279,7 +283,6 @@ void RazerController::SetAddressableZoneSizes(unsigned char zone_1_size, unsigne
     argb_zone_sizes[3]      = zone_4_size;
     argb_zone_sizes[4]      = zone_5_size;
     argb_zone_sizes[5]      = zone_6_size;
-    argb_zone_sizes_valid   = true;
 
     razer_report report     = razer_create_addressable_size_report(zone_1_size, zone_2_size, zone_3_size, zone_4_size, zone_5_size, zone_6_size);
 
@@ -288,20 +291,49 @@ void RazerController::SetAddressableZoneSizes(unsigned char zone_1_size, unsigne
 
 void RazerController::AssertAddressableMode()
 {
+    last_argb_assert_time = std::chrono::steady_clock::now();
+
     /*-----------------------------------------------------------------*\
-    | Put the controller in software mode and restore the channel sizes |
-    | it may have lost when it fell back to hardware mode               |
+    | Ask the controller which mode it is in. Only when it has fallen   |
+    | back to hardware mode are the channel sizes it may have lost sent |
+    | again, so a controller that is still in software mode is not      |
+    | disturbed. If the query fails, only the mode is re-sent.          |
     \*-----------------------------------------------------------------*/
-    razer_set_device_mode(RAZER_DEVICE_MODE_SOFTWARE);
+    razer_report report         = razer_create_report(0x00, RAZER_COMMAND_ID_GET_DEVICE_MODE, 0x02);
+    razer_report response       = razer_create_response();
+    bool         query_ok       = false;
 
-    if(argb_zone_sizes_valid)
+    razer_usb_send(&report);
+    std::this_thread::sleep_for(5ms);
+
+    if(razer_usb_receive(&response) >= 0 && response.status == RAZER_STATUS_SUCCESS)
     {
-        razer_report report = razer_create_addressable_size_report(argb_zone_sizes[0], argb_zone_sizes[1], argb_zone_sizes[2], argb_zone_sizes[3], argb_zone_sizes[4], argb_zone_sizes[5]);
+        query_ok = true;
 
-        razer_usb_send(&report);
+        if(response.arguments[0] == RAZER_DEVICE_MODE_SOFTWARE)
+        {
+            return;
+        }
     }
 
-    last_argb_assert_time = std::chrono::steady_clock::now();
+    razer_set_device_mode(RAZER_DEVICE_MODE_SOFTWARE);
+
+    /*-----------------------------------------------------------------*\
+    | Never send an all zero size set, it would blank every channel     |
+    \*-----------------------------------------------------------------*/
+    bool sizes_known            = false;
+
+    for(unsigned int zone_idx = 0; zone_idx < 6; zone_idx++)
+    {
+        sizes_known            |= (argb_zone_sizes[zone_idx] != 0);
+    }
+
+    if(query_ok && sizes_known)
+    {
+        razer_report size_report = razer_create_addressable_size_report(argb_zone_sizes[0], argb_zone_sizes[1], argb_zone_sizes[2], argb_zone_sizes[3], argb_zone_sizes[4], argb_zone_sizes[5]);
+
+        razer_usb_send(&size_report);
+    }
 }
 
 unsigned char RazerController::GetMaxBrightness()
@@ -334,8 +366,10 @@ void RazerController::SetBrightness(unsigned char brightness)
 
 void RazerController::SetLEDs(RGBColor* colors)
 {
-    if(dev_pid == RAZER_CHROMA_ADDRESSABLE_RGB_CONTROLLER_PID
-    && (std::chrono::steady_clock::now() - last_argb_assert_time) > 3s)
+    bool argb_assert_due = (dev_pid == RAZER_CHROMA_ADDRESSABLE_RGB_CONTROLLER_PID)
+                        && ((std::chrono::steady_clock::now() - last_argb_assert_time) > RAZER_ARGB_ASSERT_INTERVAL);
+
+    if(argb_assert_due)
     {
         AssertAddressableMode();
     }
