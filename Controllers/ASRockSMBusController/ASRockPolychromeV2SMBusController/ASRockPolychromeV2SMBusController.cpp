@@ -134,12 +134,13 @@ void ASRockPolychromeV2SMBusController::SetMode(uint8_t zone,uint8_t mode, uint8
     std::this_thread::sleep_for(1ms);
 
     /*-----------------------------------------------------*\
-    | Select a single LED. On Windows the LED count goes    |
-    | out as one zero byte on Intel SMBus and is skipped on |
-    | every other bus.                                      |
+    | Select a single LED. The Windows SMBus backend has no |
+    | zero-length check, so to match each chipset driver's  |
+    | own handling the LED count goes out as one zero byte  |
+    | on Intel PCH SMBus and is skipped on every other bus. |
     \*-----------------------------------------------------*/
 #ifdef _WIN32
-    if(bus->info.pci_vendor == INTEL_VEN)
+    if(bus->info.pci_vendor == INTEL_VEN && bus->info.pci_device != INTEL_SKYLAKEX_PCU_SMBUS_DEV)
     {
         bus->i2c_smbus_write_block_data(dev, POLYCHROME_V2_REG_LED_COUNT, 1, led_count_pkt);
         std::this_thread::sleep_for(1ms);
