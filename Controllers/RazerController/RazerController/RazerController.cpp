@@ -303,10 +303,7 @@ void RazerController::AssertAddressableMode()
     razer_report response       = razer_create_response();
     bool         query_ok       = false;
 
-    razer_usb_send(&report);
-    std::this_thread::sleep_for(5ms);
-
-    if(razer_usb_receive(&response) >= 0 && response.status == RAZER_STATUS_SUCCESS)
+    if(razer_usb_query(&report, &response) && (response.status == RAZER_STATUS_SUCCESS))
     {
         query_ok = true;
 

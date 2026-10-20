@@ -421,8 +421,9 @@ private:
 
     /*-----------------------------------------------------------------*\
     | Razer ARGB controller state: the controller reverts to hardware   |
-    | mode once Synapse lets go of it, so software mode and the channel |
-    | sizes are re-asserted periodically from the update path           |
+    | mode once Synapse lets go of it, so the mode is checked from the  |
+    | update path and software mode and the channel sizes are re-sent   |
+    | only when the controller has fallen back to hardware mode         |
     \*-----------------------------------------------------------------*/
     std::chrono::time_point<std::chrono::steady_clock>  last_argb_assert_time;
     unsigned char                                       argb_zone_sizes[6];
