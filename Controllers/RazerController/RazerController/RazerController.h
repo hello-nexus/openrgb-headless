@@ -427,6 +427,7 @@ private:
     \*-----------------------------------------------------------------*/
     std::chrono::time_point<std::chrono::steady_clock>  last_argb_assert_time;
     unsigned char                                       argb_zone_sizes[6];
+    unsigned int                                        argb_query_failures;
 
     void AssertAddressableMode();
 };

@@ -22,6 +22,12 @@ using namespace std::chrono_literals;
 \*---------------------------------------------------------*/
 static const std::chrono::seconds RAZER_ARGB_ASSERT_INTERVAL = 3s;
 
+/*---------------------------------------------------------*\
+| Consecutive failed mode queries after which the ARGB      |
+| controller is no longer queried                           |
+\*---------------------------------------------------------*/
+static const unsigned int RAZER_ARGB_MAX_QUERY_FAILURES = 3;
+
 RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_handle, const char* path, unsigned short pid, std::string dev_name)
 {
     dev               = dev_handle;
@@ -34,6 +40,7 @@ RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_ha
     memset(supported_effects, 0, sizeof(supported_effects));
     wait_for_response = false;
     memset(argb_zone_sizes, 0, sizeof(argb_zone_sizes));
+    argb_query_failures = 0;
     guard_manager_ptr = new DeviceGuardManager(new RazerDeviceGuard());
 
     /*-----------------------------------------------------------------*\
@@ -303,13 +310,21 @@ void RazerController::AssertAddressableMode()
     razer_report response       = razer_create_response();
     bool         query_ok       = false;
 
-    if(razer_usb_query(&report, &response) && (response.status == RAZER_STATUS_SUCCESS))
+    if(argb_query_failures < RAZER_ARGB_MAX_QUERY_FAILURES)
     {
-        query_ok = true;
-
-        if(response.arguments[0] == RAZER_DEVICE_MODE_SOFTWARE)
+        if(razer_usb_query(&report, &response) && (response.status == RAZER_STATUS_SUCCESS))
         {
-            return;
+            query_ok            = true;
+            argb_query_failures = 0;
+
+            if(response.arguments[0] == RAZER_DEVICE_MODE_SOFTWARE)
+            {
+                return;
+            }
+        }
+        else
+        {
+            argb_query_failures++;
         }
     }
 
