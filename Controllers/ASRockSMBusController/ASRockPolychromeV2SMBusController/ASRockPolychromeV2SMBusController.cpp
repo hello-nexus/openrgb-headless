@@ -124,7 +124,6 @@ void ASRockPolychromeV2SMBusController::SetColorsAndSpeed(uint8_t led, uint8_t r
 
 void ASRockPolychromeV2SMBusController::SetMode(uint8_t zone,uint8_t mode, uint8_t speed)
 {
-    uint8_t       led_count_pkt[1]  = { 0x00 };
     active_zone                     = zone;
     active_mode                     = mode;
     active_speed                    = speed;
@@ -133,9 +132,9 @@ void ASRockPolychromeV2SMBusController::SetMode(uint8_t zone,uint8_t mode, uint8
     std::this_thread::sleep_for(1ms);
 
     /*-----------------------------------------------------*\
-    | Select a single LED                                   |
+    | No zero-length block write to LED_COUNT here: 0.9's   |
+    | PIIX4 driver rejected len 0 before it reached the bus |
     \*-----------------------------------------------------*/
-    bus->i2c_smbus_write_block_data(dev, POLYCHROME_V2_REG_LED_COUNT, 0, led_count_pkt);
     std::this_thread::sleep_for(1ms);
 
     switch(active_mode)
