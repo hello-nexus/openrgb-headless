@@ -37,7 +37,8 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     via_protocol_version        = 0;
     wireless_device_pid         = 0;
     wireless_device_vid         = 0;
-    effect_check_due            = true;
+    last_brightness             = 0;
+    via_reply_timeout           = KEYCHRON_QHE_HID_READ_TIMEOUT;
 
     /*-----------------------------------------------------*\
     | Read product string                                   |
@@ -151,6 +152,8 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
 
     if(!GetSupported())
     {
+        via_reply_timeout = KEYCHRON_QHE_HID_REPLY_TIMEOUT;
+
         return;
     }
 
@@ -196,6 +199,12 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
             keycodes[led_index] = 0;
         }
     }
+
+    /*-----------------------------------------------------*\
+    | Detection is done, so wait for replies only as long   |
+    | as a busy keyboard needs                              |
+    \*-----------------------------------------------------*/
+    via_reply_timeout = KEYCHRON_QHE_HID_REPLY_TIMEOUT;
 
     /*-----------------------------------------------------*\
     | Apply matrix corrections                              |
@@ -347,26 +356,26 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
     /*-----------------------------------------------------*\
     | A transport change, power cycle or wake reruns the    |
     | firmware init, which restores the saved effect, so    |
-    | check the effect once a second and on the first frame |
-    | after SetMode. A failed read counts as lost.          |
+    | check the effect every few seconds. Only a matched    |
+    | reply that differs reasserts it, since a failed read  |
+    | says nothing about the effect.                        |
     \*-----------------------------------------------------*/
     std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
-    if(effect_check_due || ((now - last_effect_check) >= 1s))
+    if((now - last_effect_check) >= 3s)
     {
         unsigned char effect = 0;
 
-        if(!CmdGetRGBMatrixMode(&effect) || (effect != KEYCHRON_QHE_PER_KEY_RGB_EFFECT))
-        {
-            CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
-            CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
-        }
+        last_effect_check = now;
 
-        effect_check_due    = false;
-        last_effect_check   = now;
+        if(CmdGetRGBMatrixMode(&effect) && (effect != KEYCHRON_QHE_PER_KEY_RGB_EFFECT))
+        {
+            SetMode(0xFFFF, 0, 0, 0, 0);
+        }
     }
 
     CmdSetBrightness(frame_brightness);
+    last_brightness = frame_brightness;
 
     if(frame_brightness == 0)
     {
@@ -388,16 +397,24 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 
 void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, unsigned char hue, unsigned char sat, unsigned char val)
 {
-    effect_check_due = true;
-
     if(mode == 0xFFFF)
     {
         /*-------------------------------------------------*\
-        | Effect and type stay unsaved. The VIA save does   |
-        | nothing when several values changed and would     |
-        | overwrite the user's saved brightness.            |
+        | The effect is saved like the vendor app does. The |
+        | firmware saves only when the effect is the one    |
+        | value set since the last save, and clears that    |
+        | record either way. Frames set brightness, so set  |
+        | the effect and brightness and save once to clear  |
+        | the record without writing, then set the effect   |
+        | alone and save again to write it. The effect      |
+        | change reloads brightness from EEPROM, so the     |
+        | brightness set after it holds the frame's value.  |
         \*-------------------------------------------------*/
         CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+        CmdSetBrightness(last_brightness);
+        CmdSaveRGBMatrix();
+        CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+        CmdSaveRGBMatrix();
         CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
     }
     else
@@ -770,21 +787,55 @@ int QMKKeychronController::ViaSendCommand
     usb_buf[1] = cmd;
     memcpy(&usb_buf[2], data_in, data_in_size);
 
+    /*-----------------------------------------------------*\
+    | Drop reports queued since the last command, such as   |
+    | the layer change notifications the firmware sends on  |
+    | its own                                               |
+    \*-----------------------------------------------------*/
+    unsigned char drain_buf[KEYCHRON_QHE_PACKET_SIZE + 1];
+
+    for(unsigned char drain_count = 0; drain_count < 64; drain_count++)
+    {
+        if(hid_read_timeout(dev, drain_buf, sizeof(drain_buf) - 1, 0) <= 0)
+        {
+            break;
+        }
+    }
+
     hid_write(dev, usb_buf, sizeof(usb_buf));
 
     /*-----------------------------------------------------*\
-    | Read response                                         |
+    | Read until the reply to this command arrives. The     |
+    | custom value commands echo the channel and value ID.  |
     \*-----------------------------------------------------*/
-    int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, KEYCHRON_QHE_HID_READ_TIMEOUT);
+    std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(via_reply_timeout);
 
-    if(usb_buf[0] != cmd)
+    while(std::chrono::steady_clock::now() < deadline)
     {
-        return(-1);
+        int remaining = (int)std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+        int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, (remaining > 0) ? remaining : 0);
+
+        if(bytes_received <= 0 || usb_buf[0] != cmd)
+        {
+            continue;
+        }
+
+        if((cmd == QMK_VIA_CMD_CUSTOM_SET_VALUE || cmd == QMK_VIA_CMD_CUSTOM_GET_VALUE) && data_in_size >= 2 && (usb_buf[1] != data_in[0] || usb_buf[2] != data_in[1]))
+        {
+            continue;
+        }
+
+        if(cmd == QMK_VIA_CMD_CUSTOM_SAVE && data_in_size >= 1 && usb_buf[1] != data_in[0])
+        {
+            continue;
+        }
+
+        memcpy(data_out, &usb_buf[1], data_out_size);
+
+        return(bytes_received - 1);
     }
 
-    memcpy(data_out, &usb_buf[1], data_out_size);
-
-    return(bytes_received - 1);
+    return(-1);
 }
 
 int QMKKeychronController::ViaSendCommandSub
@@ -815,19 +866,42 @@ int QMKKeychronController::ViaSendCommandSub
     usb_buf[2] = subcmd;
     memcpy(&usb_buf[3], data_in, data_in_size);
 
+    /*-----------------------------------------------------*\
+    | Drop reports queued since the last command, such as   |
+    | the layer change notifications the firmware sends on  |
+    | its own                                               |
+    \*-----------------------------------------------------*/
+    unsigned char drain_buf[KEYCHRON_QHE_PACKET_SIZE + 1];
+
+    for(unsigned char drain_count = 0; drain_count < 64; drain_count++)
+    {
+        if(hid_read_timeout(dev, drain_buf, sizeof(drain_buf) - 1, 0) <= 0)
+        {
+            break;
+        }
+    }
+
     hid_write(dev, usb_buf, sizeof(usb_buf));
 
     /*-----------------------------------------------------*\
-    | Read response                                         |
+    | Read until the reply to this command arrives          |
     \*-----------------------------------------------------*/
-    int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, KEYCHRON_QHE_HID_READ_TIMEOUT);
+    std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(via_reply_timeout);
 
-    if(usb_buf[0] != cmd || usb_buf[1] != subcmd)
+    while(std::chrono::steady_clock::now() < deadline)
     {
-        return(-1);
+        int remaining = (int)std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+        int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, (remaining > 0) ? remaining : 0);
+
+        if(bytes_received <= 0 || usb_buf[0] != cmd || usb_buf[1] != subcmd)
+        {
+            continue;
+        }
+
+        memcpy(data_out, &usb_buf[2], data_out_size);
+
+        return(bytes_received - 2);
     }
 
-    memcpy(data_out, &usb_buf[2], data_out_size);
-
-    return(bytes_received - 2);
+    return(-1);
 }

@@ -34,6 +34,7 @@
 \*---------------------------------------------------------*/
 #define KEYCHRON_QHE_PACKET_SIZE                    32
 #define KEYCHRON_QHE_HID_READ_TIMEOUT               1000
+#define KEYCHRON_QHE_HID_REPLY_TIMEOUT              100
 
 /*---------------------------------------------------------*\
 | Keychron-specific VIA protocol extension                  |
@@ -159,7 +160,7 @@ private:
     unsigned char                           kc_protocol_version;
     unsigned short                          kc_rgb_protocol_version;
     std::vector<unsigned short>             keycodes;
-    bool                                    effect_check_due;
+    unsigned char                           last_brightness;
     std::chrono::steady_clock::time_point   last_effect_check;
     std::vector<qmk_rgb_matrix_led_info>    led_info;
     std::string                             location;
@@ -168,6 +169,7 @@ private:
     std::string                             serial;
     unsigned short                          supported_features;
     std::string                             vendor;
+    int                                     via_reply_timeout;
     unsigned short                          via_protocol_version;
     unsigned short                          wireless_device_pid;
     unsigned short                          wireless_device_vid;
