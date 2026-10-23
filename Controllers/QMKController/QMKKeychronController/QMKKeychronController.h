@@ -160,7 +160,7 @@ private:
     unsigned char                           kc_protocol_version;
     unsigned short                          kc_rgb_protocol_version;
     std::vector<unsigned short>             keycodes;
-    std::chrono::steady_clock::time_point   last_effect_check;
+    int                                     last_frame_brightness;
     std::vector<qmk_rgb_matrix_led_info>    led_info;
     std::string                             location;
     std::string                             name;
@@ -179,7 +179,6 @@ private:
     void                                    CmdGetKeychronRGBProtocolVersion(unsigned short* kc_rgb_protocol_version);
     std::vector<unsigned char>              CmdGetLEDIndexByRow(unsigned char row);
     void                                    CmdGetNumberLEDs(unsigned short* number_leds);
-    bool                                    CmdGetRGBMatrixMode(unsigned char* mode);
     void                                    CmdGetSupportFeature(unsigned short* supported_features);
     void                                    CmdGetViaProtocolVersion(unsigned short* via_protocol_version);
     void                                    CmdGetWirelessDeviceInfo(unsigned short* wireless_vid, unsigned short* wireless_pid);

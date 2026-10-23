@@ -37,6 +37,7 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     via_protocol_version        = 0;
     wireless_device_pid         = 0;
     wireless_device_vid         = 0;
+    last_frame_brightness       = -1;
     via_reply_timeout           = KEYCHRON_QHE_HID_READ_TIMEOUT;
 
     /*-----------------------------------------------------*\
@@ -326,6 +327,7 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
     unsigned short      led_start_index     = 0;
     unsigned short      number_packet_leds  = 9;
     unsigned char       frame_brightness    = 0;
+    std::chrono::steady_clock::time_point frame_start = std::chrono::steady_clock::now();
 
     /*-----------------------------------------------------*\
     | The per-key effect ignores each key's value and shows |
@@ -352,30 +354,11 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
         }
     }
 
-    /*-----------------------------------------------------*\
-    | A transport change, power cycle or wake reruns the    |
-    | firmware init, which restores the saved effect, so    |
-    | check the effect every few seconds. Only a matched    |
-    | reply that differs reasserts it, since a failed read  |
-    | says nothing about the effect.                        |
-    \*-----------------------------------------------------*/
-    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-
-    if((now - last_effect_check) >= 3s)
+    if(last_frame_brightness != frame_brightness)
     {
-        unsigned char effect = 0;
-
-        last_effect_check = now;
-
-        if(CmdGetRGBMatrixMode(&effect) && (effect != KEYCHRON_QHE_PER_KEY_RGB_EFFECT))
-        {
-            LOG_WARNING("[QMK Keychron] Effect read back as %u, reasserting", effect);
-
-            SetMode(0xFFFF, 0, 0, 0, 0);
-        }
+        CmdSetBrightness(frame_brightness);
+        last_frame_brightness = frame_brightness;
     }
-
-    CmdSetBrightness(frame_brightness);
 
     if(frame_brightness == 0)
     {
@@ -393,24 +376,36 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 
         led_start_index += number_packet_leds;
     }
+
+    long long frame_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - frame_start).count();
+
+    if(frame_ms > 100)
+    {
+        LOG_WARNING("[QMK Keychron] SendLEDs took %lld ms", frame_ms);
+    }
 }
 
 void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, unsigned char hue, unsigned char sat, unsigned char val)
 {
+    /*-----------------------------------------------------*\
+    | The next frame must resend its brightness             |
+    \*-----------------------------------------------------*/
+    last_frame_brightness = -1;
+
+    LOG_INFO("[QMK Keychron] SetMode %04X", mode);
+
     if(mode == 0xFFFF)
     {
         /*-------------------------------------------------*\
-        | The effect is saved like the vendor app does. The |
-        | firmware saves only when exactly one value was    |
-        | set since the last save, and it clears that       |
-        | record either way. Frames set brightness, so the  |
-        | first save clears the record without writing and  |
-        | the second one stores the effect.                 |
+        | The per-key effect ignores each key's value and   |
+        | uses the matrix brightness, which the firmware    |
+        | reloads from EEPROM when the effect changes, so   |
+        | save brightness before switching effects. The     |
+        | effect itself is left unsaved.                    |
         \*-------------------------------------------------*/
-        CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+        CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
         CmdSaveRGBMatrix();
         CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
-        CmdSaveRGBMatrix();
         CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
     }
     else
@@ -678,7 +673,12 @@ void QMKKeychronController::CmdSendLEDs(unsigned char start_index, unsigned char
         args[4 + (led_index * 3)]   = hsv_color.value;
     }
 
-    ViaSendCommandSub(KC_KEYCHRON_RGB, KEYCHRON_RGB_PER_KEY_SET_COLOR, args, sizeof(args), NULL, 0);
+    unsigned char status = 0;
+
+    if((ViaSendCommandSub(KC_KEYCHRON_RGB, KEYCHRON_RGB_PER_KEY_SET_COLOR, args, sizeof(args), &status, sizeof(status)) > 0) && (status != 0))
+    {
+        LOG_WARNING("[QMK Keychron] Per-key color packet at %u failed, status %02X", args[0], status);
+    }
 }
 
 void QMKKeychronController::CmdSetBrightness(unsigned char brightness)
@@ -702,29 +702,6 @@ void QMKKeychronController::CmdSetColorHS(unsigned char h, unsigned char s)
     args[3] = s;
 
     ViaSendCommand(QMK_VIA_CMD_CUSTOM_SET_VALUE, args, sizeof(args), NULL, 0);
-}
-
-bool QMKKeychronController::CmdGetRGBMatrixMode(unsigned char* mode)
-{
-    unsigned char args[2];
-    unsigned char response[3] = { 0 };
-
-    args[0] = QMK_VIA_RGB_MATRIX_CHANNEL;
-    args[1] = QMK_VIA_RGB_MATRIX_EFFECT;
-
-    if(ViaSendCommand(QMK_VIA_CMD_CUSTOM_GET_VALUE, args, sizeof(args), response, sizeof(response)) <= 0)
-    {
-        return(false);
-    }
-
-    if((response[0] != args[0]) || (response[1] != args[1]))
-    {
-        return(false);
-    }
-
-    *mode = response[2];
-
-    return(true);
 }
 
 void QMKKeychronController::CmdSetPerKeyRGBType(unsigned char type)
@@ -829,6 +806,13 @@ int QMKKeychronController::ViaSendCommand
                 have_discard = true;
             }
 
+            if(usb_buf[0] == 0xFF)
+            {
+                LOG_WARNING("[QMK Keychron] Command %02X was reported unhandled", cmd);
+
+                return(-1);
+            }
+
             continue;
         }
 
@@ -916,6 +900,13 @@ int QMKKeychronController::ViaSendCommandSub
             {
                 memcpy(discarded, usb_buf, sizeof(discarded));
                 have_discard = true;
+            }
+
+            if(usb_buf[0] == 0xFF)
+            {
+                LOG_WARNING("[QMK Keychron] Command %02X %02X was reported unhandled", cmd, subcmd);
+
+                return(-1);
             }
 
             continue;
