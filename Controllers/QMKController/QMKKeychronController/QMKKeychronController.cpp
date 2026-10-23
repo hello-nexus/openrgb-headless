@@ -37,6 +37,7 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     via_protocol_version        = 0;
     wireless_device_pid         = 0;
     wireless_device_vid         = 0;
+    last_frame_brightness       = -1;
 
     /*-----------------------------------------------------*\
     | Read product string                                   |
@@ -316,6 +317,40 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 {
     unsigned short      led_start_index     = 0;
     unsigned short      number_packet_leds  = 9;
+    unsigned char       frame_brightness    = 0;
+
+    /*-----------------------------------------------------*\
+    | The per-key effect ignores each key's value and shows |
+    | every key at the matrix brightness, so a black key    |
+    | would light white. Follow the brightest LED in the    |
+    | frame, unsaved, which also overwrites the EEPROM      |
+    | reload the firmware does after sleep and wake.        |
+    \*-----------------------------------------------------*/
+    for(unsigned short led_idx = 0; led_idx < number_leds; led_idx++)
+    {
+        unsigned char led_max = RGBGetRValue(color_data[led_idx]);
+
+        if(RGBGetGValue(color_data[led_idx]) > led_max)
+        {
+            led_max = RGBGetGValue(color_data[led_idx]);
+        }
+
+        if(RGBGetBValue(color_data[led_idx]) > led_max)
+        {
+            led_max = RGBGetBValue(color_data[led_idx]);
+        }
+
+        if(led_max > frame_brightness)
+        {
+            frame_brightness = led_max;
+        }
+    }
+
+    if(last_frame_brightness != frame_brightness)
+    {
+        CmdSetBrightness(frame_brightness);
+        last_frame_brightness = frame_brightness;
+    }
 
     while(led_start_index < number_leds)
     {
@@ -332,6 +367,11 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 
 void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, unsigned char hue, unsigned char sat, unsigned char val)
 {
+    /*-----------------------------------------------------*\
+    | The next frame must resend its brightness             |
+    \*-----------------------------------------------------*/
+    last_frame_brightness = -1;
+
     if(mode == 0xFFFF)
     {
         /*-------------------------------------------------*\

@@ -158,6 +158,7 @@ private:
     unsigned char                           kc_protocol_version;
     unsigned short                          kc_rgb_protocol_version;
     std::vector<unsigned short>             keycodes;
+    int                                     last_frame_brightness;
     std::vector<qmk_rgb_matrix_led_info>    led_info;
     std::string                             location;
     std::string                             name;
