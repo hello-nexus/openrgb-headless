@@ -37,7 +37,7 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     via_protocol_version        = 0;
     wireless_device_pid         = 0;
     wireless_device_vid         = 0;
-    last_frame_brightness       = -1;
+    effect_check_due            = true;
 
     /*-----------------------------------------------------*\
     | Read product string                                   |
@@ -321,10 +321,8 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 
     /*-----------------------------------------------------*\
     | The per-key effect ignores each key's value and shows |
-    | every key at the matrix brightness, so a black key    |
-    | would light white. Follow the brightest LED in the    |
-    | frame, unsaved, which also overwrites the EEPROM      |
-    | reload the firmware does after sleep and wake.        |
+    | every key at the matrix brightness, so follow the     |
+    | brightest LED in the frame, unsaved.                  |
     \*-----------------------------------------------------*/
     for(unsigned short led_idx = 0; led_idx < number_leds; led_idx++)
     {
@@ -346,10 +344,33 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
         }
     }
 
-    if(last_frame_brightness != frame_brightness)
+    /*-----------------------------------------------------*\
+    | A transport change, power cycle or wake reruns the    |
+    | firmware init, which restores the saved effect, so    |
+    | check the effect once a second and on the first frame |
+    | after SetMode. A failed read counts as lost.          |
+    \*-----------------------------------------------------*/
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+
+    if(effect_check_due || ((now - last_effect_check) >= 1s))
     {
-        CmdSetBrightness(frame_brightness);
-        last_frame_brightness = frame_brightness;
+        unsigned char effect = 0;
+
+        if(!CmdGetRGBMatrixMode(&effect) || (effect != KEYCHRON_QHE_PER_KEY_RGB_EFFECT))
+        {
+            CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+            CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
+        }
+
+        effect_check_due    = false;
+        last_effect_check   = now;
+    }
+
+    CmdSetBrightness(frame_brightness);
+
+    if(frame_brightness == 0)
+    {
+        return;
     }
 
     while(led_start_index < number_leds)
@@ -367,22 +388,15 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 
 void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, unsigned char hue, unsigned char sat, unsigned char val)
 {
-    /*-----------------------------------------------------*\
-    | The next frame must resend its brightness             |
-    \*-----------------------------------------------------*/
-    last_frame_brightness = -1;
+    effect_check_due = true;
 
     if(mode == 0xFFFF)
     {
         /*-------------------------------------------------*\
-        | The per-key effect ignores each key's value and   |
-        | uses the matrix brightness, which the firmware    |
-        | reloads from EEPROM when the effect changes, so   |
-        | save brightness before switching effects. The     |
-        | effect itself is left unsaved.                    |
+        | Effect and type stay unsaved. The VIA save does   |
+        | nothing when several values changed and would     |
+        | overwrite the user's saved brightness.            |
         \*-------------------------------------------------*/
-        CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
-        CmdSaveRGBMatrix();
         CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
         CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
     }
@@ -675,6 +689,29 @@ void QMKKeychronController::CmdSetColorHS(unsigned char h, unsigned char s)
     args[3] = s;
 
     ViaSendCommand(QMK_VIA_CMD_CUSTOM_SET_VALUE, args, sizeof(args), NULL, 0);
+}
+
+bool QMKKeychronController::CmdGetRGBMatrixMode(unsigned char* mode)
+{
+    unsigned char args[2];
+    unsigned char response[3] = { 0 };
+
+    args[0] = QMK_VIA_RGB_MATRIX_CHANNEL;
+    args[1] = QMK_VIA_RGB_MATRIX_EFFECT;
+
+    if(ViaSendCommand(QMK_VIA_CMD_CUSTOM_GET_VALUE, args, sizeof(args), response, sizeof(response)) <= 0)
+    {
+        return(false);
+    }
+
+    if((response[0] != args[0]) || (response[1] != args[1]))
+    {
+        return(false);
+    }
+
+    *mode = response[2];
+
+    return(true);
 }
 
 void QMKKeychronController::CmdSetPerKeyRGBType(unsigned char type)
