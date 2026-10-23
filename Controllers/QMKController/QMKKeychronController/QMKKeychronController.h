@@ -33,6 +33,7 @@
 \*---------------------------------------------------------*/
 #define KEYCHRON_QHE_PACKET_SIZE                    32
 #define KEYCHRON_QHE_HID_READ_TIMEOUT               1000
+#define KEYCHRON_QHE_HID_REPLY_TIMEOUT              100
 
 /*---------------------------------------------------------*\
 | Keychron-specific VIA protocol extension                  |
@@ -158,13 +159,18 @@ private:
     unsigned char                           kc_protocol_version;
     unsigned short                          kc_rgb_protocol_version;
     std::vector<unsigned short>             keycodes;
+    bool                                    direct_mode;
+    int                                     last_frame_brightness;
+    long long                               last_warning_ms;
     std::vector<qmk_rgb_matrix_led_info>    led_info;
     std::string                             location;
     std::string                             name;
     unsigned short                          number_leds;
     std::string                             serial;
+    unsigned int                            suppressed_warnings;
     unsigned short                          supported_features;
     std::string                             vendor;
+    int                                     via_reply_timeout;
     unsigned short                          via_protocol_version;
     unsigned short                          wireless_device_pid;
     unsigned short                          wireless_device_vid;
@@ -182,7 +188,8 @@ private:
     void                                    CmdSaveMode();
     void                                    CmdSaveRGBMatrix();
     void                                    CmdSendLEDs(unsigned char start_index, unsigned char number_leds, RGBColor* color_data);
-    void                                    CmdSetBrightness(unsigned char brightness);
+    void                                    LogReplyWarning(const char* format, ...);
+    bool                                    CmdSetBrightness(unsigned char brightness);
     void                                    CmdSetColorHS(unsigned char h, unsigned char s);
     void                                    CmdSetPerKeyRGBType(unsigned char type);
     void                                    CmdSetRGBMatrixMode(unsigned char mode);
