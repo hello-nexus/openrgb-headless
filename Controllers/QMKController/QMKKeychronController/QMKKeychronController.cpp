@@ -37,7 +37,6 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     via_protocol_version        = 0;
     wireless_device_pid         = 0;
     wireless_device_vid         = 0;
-    last_brightness             = 0;
     via_reply_timeout           = KEYCHRON_QHE_HID_READ_TIMEOUT;
 
     /*-----------------------------------------------------*\
@@ -370,12 +369,13 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 
         if(CmdGetRGBMatrixMode(&effect) && (effect != KEYCHRON_QHE_PER_KEY_RGB_EFFECT))
         {
+            LOG_WARNING("[QMK Keychron] Effect read back as %u, reasserting", effect);
+
             SetMode(0xFFFF, 0, 0, 0, 0);
         }
     }
 
     CmdSetBrightness(frame_brightness);
-    last_brightness = frame_brightness;
 
     if(frame_brightness == 0)
     {
@@ -401,17 +401,13 @@ void QMKKeychronController::SetMode(unsigned short mode, unsigned char speed, un
     {
         /*-------------------------------------------------*\
         | The effect is saved like the vendor app does. The |
-        | firmware saves only when the effect is the one    |
-        | value set since the last save, and clears that    |
-        | record either way. Frames set brightness, so set  |
-        | the effect and brightness and save once to clear  |
-        | the record without writing, then set the effect   |
-        | alone and save again to write it. The effect      |
-        | change reloads brightness from EEPROM, so the     |
-        | brightness set after it holds the frame's value.  |
+        | firmware saves only when exactly one value was    |
+        | set since the last save, and it clears that       |
+        | record either way. Frames set brightness, so the  |
+        | first save clears the record without writing and  |
+        | the second one stores the effect.                 |
         \*-------------------------------------------------*/
         CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
-        CmdSetBrightness(last_brightness);
         CmdSaveRGBMatrix();
         CmdSetRGBMatrixMode(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
         CmdSaveRGBMatrix();
@@ -810,30 +806,43 @@ int QMKKeychronController::ViaSendCommand
     \*-----------------------------------------------------*/
     std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(via_reply_timeout);
 
+    unsigned char discarded[4] = { 0 };
+    bool          have_discard = false;
+
     while(std::chrono::steady_clock::now() < deadline)
     {
         int remaining = (int)std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
         int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, (remaining > 0) ? remaining : 0);
 
-        if(bytes_received <= 0 || usb_buf[0] != cmd)
+        if(bytes_received <= 0)
         {
             continue;
         }
 
-        if((cmd == QMK_VIA_CMD_CUSTOM_SET_VALUE || cmd == QMK_VIA_CMD_CUSTOM_GET_VALUE) && data_in_size >= 2 && (usb_buf[1] != data_in[0] || usb_buf[2] != data_in[1]))
+        if(usb_buf[0] != cmd
+        || ((cmd == QMK_VIA_CMD_CUSTOM_SET_VALUE || cmd == QMK_VIA_CMD_CUSTOM_GET_VALUE) && data_in_size >= 2 && (usb_buf[1] != data_in[0] || usb_buf[2] != data_in[1]))
+        || (cmd == QMK_VIA_CMD_CUSTOM_SAVE && data_in_size >= 1 && usb_buf[1] != data_in[0]))
         {
+            if(!have_discard)
+            {
+                memcpy(discarded, usb_buf, sizeof(discarded));
+                have_discard = true;
+            }
+
             continue;
         }
 
-        if(cmd == QMK_VIA_CMD_CUSTOM_SAVE && data_in_size >= 1 && usb_buf[1] != data_in[0])
+        if(have_discard)
         {
-            continue;
+            LOG_WARNING("[QMK Keychron] Command %02X got a mismatched reply first: %02X %02X %02X %02X", cmd, discarded[0], discarded[1], discarded[2], discarded[3]);
         }
 
         memcpy(data_out, &usb_buf[1], data_out_size);
 
         return(bytes_received - 1);
     }
+
+    LOG_WARNING("[QMK Keychron] Command %02X timed out, first discarded reply: %02X %02X %02X %02X", cmd, discarded[0], discarded[1], discarded[2], discarded[3]);
 
     return(-1);
 }
@@ -888,20 +897,41 @@ int QMKKeychronController::ViaSendCommandSub
     \*-----------------------------------------------------*/
     std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(via_reply_timeout);
 
+    unsigned char discarded[4] = { 0 };
+    bool          have_discard = false;
+
     while(std::chrono::steady_clock::now() < deadline)
     {
         int remaining = (int)std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
         int bytes_received = hid_read_timeout(dev, usb_buf, sizeof(usb_buf) - 1, (remaining > 0) ? remaining : 0);
 
-        if(bytes_received <= 0 || usb_buf[0] != cmd || usb_buf[1] != subcmd)
+        if(bytes_received <= 0)
         {
             continue;
+        }
+
+        if(usb_buf[0] != cmd || usb_buf[1] != subcmd)
+        {
+            if(!have_discard)
+            {
+                memcpy(discarded, usb_buf, sizeof(discarded));
+                have_discard = true;
+            }
+
+            continue;
+        }
+
+        if(have_discard)
+        {
+            LOG_WARNING("[QMK Keychron] Command %02X %02X got a mismatched reply first: %02X %02X %02X %02X", cmd, subcmd, discarded[0], discarded[1], discarded[2], discarded[3]);
         }
 
         memcpy(data_out, &usb_buf[2], data_out_size);
 
         return(bytes_received - 2);
     }
+
+    LOG_WARNING("[QMK Keychron] Command %02X %02X timed out, first discarded reply: %02X %02X %02X %02X", cmd, subcmd, discarded[0], discarded[1], discarded[2], discarded[3]);
 
     return(-1);
 }
