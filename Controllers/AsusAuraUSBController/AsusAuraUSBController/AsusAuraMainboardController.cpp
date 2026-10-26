@@ -9,6 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <cstdio>
 #include <cstring>
 #include "AsusAuraMainboardController.h"
 
@@ -18,6 +19,7 @@ AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const c
     unsigned char num_rgb_headers           = config_table[0x1D];
     unsigned char num_addressable_headers   = config_table[0x02];
     unsigned char effect_channel            = 0;
+    bool          has_gen2_header           = false;
 
     if(num_total_mainboard_leds < num_rgb_headers)
     {
@@ -38,11 +40,40 @@ AuraMainboardController::AuraMainboardController(hid_device* dev_handle, const c
     \*-----------------------------------------------------*/
     for(int i = 0; i < num_addressable_headers; i++)
     {
-        device_info.push_back({effect_channel, (unsigned char)i, 0x01, 0, AuraDeviceType::ADDRESSABLE});
+        /*-----------------------------------------------------*\
+        | A header the config table marks Gen2 takes effect     |
+        | channel 0x10 + header and subchannel 1 in its direct  |
+        | packets                                               |
+        \*-----------------------------------------------------*/
+        if(i < AURA_CONFIG_HEADER_ENTRIES && config_table[0x04 + (i * 6)] == AURA_HEADER_PROTOCOL_GEN2)
+        {
+            device_info.push_back({(unsigned char)(AURA_GEN2_EFFECT_CHANNEL + i), (unsigned char)i, 0x01, 0, AuraDeviceType::ADDRESSABLE, 0x01});
+            has_gen2_header = true;
+        }
+        else
+        {
+            device_info.push_back({effect_channel, (unsigned char)i, 0x01, 0, AuraDeviceType::ADDRESSABLE});
+        }
         effect_channel++;
     }
 
+    std::string table;
+    char        hex[4];
+
+    for(int i = 0; i < 60; i++)
+    {
+        snprintf(hex, sizeof(hex), "%02X ", config_table[i]);
+        table += hex;
+    }
+
+    LOG_WARNING("[%s] ASUS Aura USB firmware %.16s, Gen2 headers %s, config table: %s", name.c_str(), version, has_gen2_header ? "yes" : "no", table.c_str());
+
     SetGen1();
+
+    if(has_gen2_header)
+    {
+        SendArgbEnable();
+    }
 }
 
 AuraMainboardController::~AuraMainboardController()
@@ -79,7 +110,8 @@ void AuraMainboardController::SetChannelLEDs(unsigned char channel, RGBColor * c
     (
         device_info[channel].direct_channel,
         num_colors,
-        colors
+        colors,
+        device_info[channel].subchannel
     );
 
 }
@@ -138,6 +170,33 @@ void AuraMainboardController::SetMode
         led_data,
         shutdown_effect
     );
+}
+
+void AuraMainboardController::SendArgbEnable()
+{
+    unsigned char usb_buf[65];
+
+    /*-----------------------------------------------------*\
+    | Zero out buffer                                       |
+    \*-----------------------------------------------------*/
+    memset(usb_buf, 0x00, sizeof(usb_buf));
+
+    /*-----------------------------------------------------*\
+    | Set up message packet, sent as 01 01 then 00 01       |
+    \*-----------------------------------------------------*/
+    usb_buf[0x00]   = 0xEC;
+    usb_buf[0x01]   = AURA_MAINBOARD_CONTROL_MODE_ARGB_ENABLE;
+    usb_buf[0x02]   = 0x01;
+    usb_buf[0x03]   = 0x01;
+
+    /*-----------------------------------------------------*\
+    | Send packets                                          |
+    \*-----------------------------------------------------*/
+    hid_write(dev, usb_buf, 65);
+
+    usb_buf[0x02]   = 0x00;
+
+    hid_write(dev, usb_buf, 65);
 }
 
 unsigned short AuraMainboardController::GetMask(int start, int size)

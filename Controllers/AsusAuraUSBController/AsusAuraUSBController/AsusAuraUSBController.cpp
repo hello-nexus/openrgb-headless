@@ -149,7 +149,8 @@ void AuraUSBController::SendDirect
     (
     unsigned char   device,
     unsigned short  led_count,
-    RGBColor*  colors
+    RGBColor*  colors,
+    unsigned char   subchannel
     )
 {
     unsigned char usb_buf[65];
@@ -183,7 +184,7 @@ void AuraUSBController::SendDirect
         usb_buf[0x01]   = AURA_CONTROL_MODE_DIRECT;
         usb_buf[0x02]   = command;
         usb_buf[0x03]   = leds_offset;
-        usb_buf[0x04]   = leds_in_packet;
+        usb_buf[0x04]   = (unsigned char)(leds_in_packet | (subchannel << 5));
 
         /*-----------------------------------------------------*\
         | Copy in color data bytes                              |

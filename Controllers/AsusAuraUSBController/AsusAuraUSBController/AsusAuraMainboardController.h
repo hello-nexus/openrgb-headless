@@ -20,7 +20,15 @@ enum
 {
     AURA_MAINBOARD_CONTROL_MODE_EFFECT            = 0x35,     /* Effect control mode                  */
     AURA_MAINBOARD_CONTROL_MODE_EFFECT_COLOR      = 0x36,     /* Effect color control mode            */
+    AURA_MAINBOARD_CONTROL_MODE_ARGB_ENABLE       = 0x38,     /* Gen2 header enable                   */
     AURA_MAINBOARD_CONTROL_MODE_COMMIT            = 0x3F,     /* Commit mode                          */
+};
+
+enum
+{
+    AURA_CONFIG_HEADER_ENTRIES                    = 4,        /* Header entries in the config table   */
+    AURA_HEADER_PROTOCOL_GEN2                     = 0x02,     /* Config table Gen2 header protocol    */
+    AURA_GEN2_EFFECT_CHANNEL                      = 0x10,     /* Effect channel of Gen2 header 1      */
 };
 
 class AuraMainboardController : public AuraUSBController
@@ -77,6 +85,8 @@ private:
         unsigned char*  led_data,
         bool            shutdown_effect
         );
+
+    void SendArgbEnable();
 
     void SetGen1();
 };

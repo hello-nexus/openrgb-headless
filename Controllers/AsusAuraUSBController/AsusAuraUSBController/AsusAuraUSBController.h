@@ -69,6 +69,7 @@ struct AuraDeviceInfo
     unsigned char   num_leds;
     unsigned char   num_headers;
     AuraDeviceType  device_type;
+    unsigned char   subchannel = 0;
 };
 
 class AuraUSBController
@@ -114,7 +115,8 @@ protected:
         (
         unsigned char   device,
         unsigned short  led_count,
-        RGBColor *      colors
+        RGBColor *      colors,
+        unsigned char   subchannel = 0
         );
 
 private:
