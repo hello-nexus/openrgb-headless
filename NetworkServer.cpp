@@ -188,24 +188,45 @@ static bool SupersedesQueuedLEDUpdate(const NetworkServerControllerThreadQueueEn
         return(false);
     }
 
-    if(header.pkt_id == NET_PACKET_ID_RGBCONTROLLER_UPDATELEDS)
-    {
-        return(true);
-    }
+    /*-----------------------------------------------------*\
+    | UpdateLEDs: data size, color count, colors.           |
+    | UpdateZoneLEDs: data size, zone index, color count,   |
+    | colors.                                               |
+    \*-----------------------------------------------------*/
+    bool            zone_update         = (header.pkt_id == NET_PACKET_ID_RGBCONTROLLER_UPDATEZONELEDS);
+    std::size_t     num_colors_offset   = zone_update ? (2 * sizeof(unsigned int)) : sizeof(unsigned int);
+    std::size_t     min_size            = num_colors_offset + sizeof(unsigned short);
 
     if((queued.data == NULL)
-    || (header.pkt_size < (2 * sizeof(unsigned int)))
-    || (queued.header.pkt_size < (2 * sizeof(unsigned int))))
+    || (header.pkt_size < min_size)
+    || (queued.header.pkt_size < min_size))
     {
         return(false);
     }
 
-    unsigned int zone_idx;
-    unsigned int queued_zone_idx;
-    memcpy(&zone_idx, data + sizeof(unsigned int), sizeof(zone_idx));
-    memcpy(&queued_zone_idx, queued.data + sizeof(unsigned int), sizeof(queued_zone_idx));
+    if(zone_update)
+    {
+        unsigned int zone_idx;
+        unsigned int queued_zone_idx;
+        memcpy(&zone_idx, data + sizeof(unsigned int), sizeof(zone_idx));
+        memcpy(&queued_zone_idx, queued.data + sizeof(unsigned int), sizeof(queued_zone_idx));
 
-    return(zone_idx == queued_zone_idx);
+        if(zone_idx != queued_zone_idx)
+        {
+            return(false);
+        }
+    }
+
+    /*-----------------------------------------------------*\
+    | A packet may set only a prefix of the LEDs, so the    |
+    | newer one must cover at least as many colors          |
+    \*-----------------------------------------------------*/
+    unsigned short num_colors;
+    unsigned short queued_num_colors;
+    memcpy(&num_colors, data + num_colors_offset, sizeof(num_colors));
+    memcpy(&queued_num_colors, queued.data + num_colors_offset, sizeof(queued_num_colors));
+
+    return(num_colors >= queued_num_colors);
 }
 
 /*---------------------------------------------------------*\
