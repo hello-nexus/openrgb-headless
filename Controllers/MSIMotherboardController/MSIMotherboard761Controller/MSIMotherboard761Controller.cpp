@@ -26,6 +26,12 @@
 #define ARRAY_ROW_RAW(X, Y) X*16 + Y
 #define SETUP_ARRAY_SIZE 290
 
+/*---------------------------------------------------------*\
+| Unchanged headers are still resent this often so a        |
+| firmware fallback or another writer gets repaired         |
+\*---------------------------------------------------------*/
+static const std::chrono::milliseconds kKeepaliveMs(1000);
+
 struct mystic_light_761_config
 {
     const std::string *                      name;                  // Name of the board
@@ -473,14 +479,15 @@ bool MSIMotherboard761Controller::Update
 {
     bool flag = true;
     FeaturePacket_Zone_761* packets[] = { &data->jaf, &data->jargb1, &data->jargb2, &data->jargb3, &data->jpipe1 };
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
     SendConfiguration();
 
     /*-----------------------------------------------------*\
-    | Only send changed zones. Each report takes ~90 ms, so |
-    | resending unchanged headers caps the update rate, and |
-    | on boards with JPIPE1 updating onboard LEDs would     |
-    | clear the headers.                                    |
+    | Only send changed zones, plus a keepalive. Each       |
+    | report is slow, so resending unchanged headers caps   |
+    | the update rate, and on boards with JPIPE1 updating   |
+    | onboard LEDs would clear the headers.                 |
     \*-----------------------------------------------------*/
     for(unsigned int i = 0; i < sizeof(packets) / sizeof(packets[0]); i++)
     {
@@ -491,7 +498,7 @@ bool MSIMotherboard761Controller::Update
             continue;
         }
 
-        if(!packet->dirty)
+        if(!packet->dirty && ((now - last_sent[i]) < kKeepaliveMs))
         {
             continue;
         }
@@ -503,6 +510,7 @@ bool MSIMotherboard761Controller::Update
         else
         {
             packet->dirty = false;
+            last_sent[i]  = now;
         }
     }
 
@@ -755,10 +763,6 @@ void MSIMotherboard761Controller::SendConfiguration()
     }
 
     setup_dirty = false;
-
-    /*-----------------------------------------------------*\
-    | Resend every header after a configuration push        |
-    \*-----------------------------------------------------*/
     MarkAllDirty();
 }
 
