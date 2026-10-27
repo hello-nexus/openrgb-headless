@@ -153,7 +153,7 @@ void PolychromeUSBController::SetDeviceInfo()
 
         if(hw_rgswap && !onboard && !rgswapconfig[zonecnt])
         {
-            LOG_WARNING("[ASRock Polychrome USB] %s: hardware RGSwap set, ignored (setting is off)", polychrome_USB_zone_names[zonecnt]);
+            LOG_WARNING("[ASRock Polychrome USB] %s: hardware RGSwap set, not used for channel order (setting is off)", polychrome_USB_zone_names[zonecnt]);
         }
 
         newdev_info.num_leds = configtable[zonecnt];
