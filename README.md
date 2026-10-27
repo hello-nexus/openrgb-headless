@@ -71,9 +71,10 @@ Everything that's not GUI-bound:
 - **No lost listen-thread wakeups**: the SDK server's per-controller threads
   can no longer miss a wakeup, which left a packet waiting for the next one to
   that controller, or hung a rescan in `join()` and stalled every client.
-- **Stable ASRock channel order**: ASRock Polychrome USB zones take their R/G
-  order from the `RGSwap` settings only, so a header no longer shows red for
-  green on alternate boots.
+- **Stable ASRock channel order**: ASRock Polychrome USB RGB and ARGB headers
+  take their R/G order from the `RGSwap` settings only, so a header no longer
+  shows red for green on alternate boots. Onboard zones keep the hardware bit,
+  and detection no longer clears hardware RGSwap bits.
 - **Detection flow**: every detector is called directly, exactly as upstream
   does, with no timeout, worker thread or exception wrapper. The only addition
   is tagging each detected controller with its detector's name for the
