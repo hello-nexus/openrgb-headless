@@ -157,4 +157,5 @@ private:
             MSI_ZONE zone
             );
     void            SelectPerLedProtocol();
+    void            MarkAllDirty();
 };
