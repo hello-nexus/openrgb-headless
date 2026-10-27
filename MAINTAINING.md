@@ -225,18 +225,23 @@ pattern.
 
 ### ASRockPolychromeUSBController.cpp - RGSwap from settings only
 
-**What we changed:** `SetDeviceInfo()` takes each zone's `rgswap` from the
-`RGSwap` settings alone (read on the first run too, after the defaults are
-written) instead of `hardware bit || setting`, and logs a warning when the
-hardware bit is set but the setting is off.
+**What we changed:** `SetDeviceInfo()` takes the `rgswap` of the RGB and ARGB
+headers (zones 0-3 and 7) from the `RGSwap` settings alone (read on the first
+run too, after the defaults are written) instead of `hardware bit || setting`,
+and logs a warning when the hardware bit is set but the setting is off. The
+onboard zones (PCH, IO Cover, PCB) keep `hardware bit || setting`, as upstream
+has it. The register write at detection is `hardware byte | final flags`, so
+it never clears a bit. One warning line per device logs the raw register byte,
+the available-zone mask and each available zone's final flag.
 
 **Why:** Direct mode writes 0 to the hardware RGSwap register and swaps R and
 G in software from the flag latched at detection. The register's value at
 detection varied from boot to boot, so a board's ARGB header showed red for
 green on alternate boots (Z790 Taichi Lite, Addressable Header 3/Audio).
 
-**Conflict resolution:** keep the unconditional settings read loop and
-`newdev_info.rgswap = rgswapconfig[zonecnt]`.
+**Conflict resolution:** keep the unconditional settings read loop,
+`newdev_info.rgswap = rgswapconfig[zonecnt] || (onboard && hw_rgswap)` and the
+OR'ed register write.
 
 **Upstream PR candidate:** Yes.
 
