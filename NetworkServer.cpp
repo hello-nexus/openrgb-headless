@@ -156,6 +156,59 @@ static bool ListenThreadHasWork(NetworkServerControllerThread* thread)
 }
 
 /*---------------------------------------------------------*\
+| A newer packet supersedes a queued one when both come     |
+| from the same client and set the same LEDs: UpdateLEDs    |
+| replaces UpdateLEDs, UpdateZoneLEDs replaces              |
+| UpdateZoneLEDs for the same zone. The newer packet's      |
+| embedded size must match its header, so a malformed       |
+| packet never replaces a valid one.                        |
+\*---------------------------------------------------------*/
+static bool SupersedesQueuedLEDUpdate(const NetworkServerControllerThreadQueueEntry& queued, const NetPacketHeader& header, const unsigned char* data, const NetworkClientInfo* client_info)
+{
+    if((header.pkt_id != NET_PACKET_ID_RGBCONTROLLER_UPDATELEDS)
+    && (header.pkt_id != NET_PACKET_ID_RGBCONTROLLER_UPDATEZONELEDS))
+    {
+        return(false);
+    }
+
+    if((queued.client_info != client_info)
+    || (queued.header.pkt_id != header.pkt_id)
+    || (queued.header.pkt_dev_id != header.pkt_dev_id)
+    || (data == NULL)
+    || (header.pkt_size < sizeof(unsigned int)))
+    {
+        return(false);
+    }
+
+    unsigned int data_size;
+    memcpy(&data_size, data, sizeof(data_size));
+
+    if(data_size != header.pkt_size)
+    {
+        return(false);
+    }
+
+    if(header.pkt_id == NET_PACKET_ID_RGBCONTROLLER_UPDATELEDS)
+    {
+        return(true);
+    }
+
+    if((queued.data == NULL)
+    || (header.pkt_size < (2 * sizeof(unsigned int)))
+    || (queued.header.pkt_size < (2 * sizeof(unsigned int))))
+    {
+        return(false);
+    }
+
+    unsigned int zone_idx;
+    unsigned int queued_zone_idx;
+    memcpy(&zone_idx, data + sizeof(unsigned int), sizeof(zone_idx));
+    memcpy(&queued_zone_idx, queued.data + sizeof(unsigned int), sizeof(queued_zone_idx));
+
+    return(zone_idx == queued_zone_idx);
+}
+
+/*---------------------------------------------------------*\
 | Wake a listen thread. Taking start_mutex before notifying |
 | orders the notify after the thread's work check, so the   |
 | wakeup cannot land between that check and its wait.       |
@@ -1183,6 +1236,15 @@ void NetworkServer::ControllerListenThread(NetworkServerControllerThread* this_t
 
                 delete[] queue_entry.data;
 
+                /*-----------------------------------------*\
+                | Every superseded update still gets its   |
+                | ACK, in order, ahead of this entry's own |
+                \*-----------------------------------------*/
+                for(unsigned int superseded_idx = 0; superseded_idx < queue_entry.superseded; superseded_idx++)
+                {
+                    SendAck(queue_entry.client_info, queue_entry.header.pkt_dev_id, queue_entry.header.pkt_id, NET_PACKET_STATUS_OK);
+                }
+
                 SendAck(queue_entry.client_info, queue_entry.header.pkt_dev_id, queue_entry.header.pkt_id, status);
             }
         }
@@ -1442,6 +1504,7 @@ void NetworkServer::ListenThreadFunction(NetworkClientInfo* client_info)
                     new_entry.data                      = data;
                     new_entry.header                    = header;
                     new_entry.client_info               = client_info;
+                    new_entry.superseded                = 0;
 
                     profilemanager_thread->queue.push(new_entry);
                     profilemanager_thread->queue_mutex.unlock();
@@ -1555,8 +1618,33 @@ void NetworkServer::ListenThreadFunction(NetworkClientInfo* client_info)
                         new_entry.data                      = data;
                         new_entry.header                    = header;
                         new_entry.client_info               = client_info;
+                        new_entry.superseded                = 0;
 
-                        controller_threads[controller_thread_idx]->queue.push(new_entry);
+                        std::queue<NetworkServerControllerThreadQueueEntry>& queue = controller_threads[controller_thread_idx]->queue;
+
+                        /*---------------------------------*\
+                        | Latest frame wins: a newer LED    |
+                        | update replaces the matching one  |
+                        | still waiting at the back of the  |
+                        | queue, so a slow controller       |
+                        | applies the newest colors instead |
+                        | of working through a backlog.     |
+                        | Only the back entry is checked,   |
+                        | so the order of every other       |
+                        | packet is unchanged.              |
+                        \*---------------------------------*/
+                        if(!queue.empty() && SupersedesQueuedLEDUpdate(queue.back(), header, data, client_info))
+                        {
+                            new_entry.superseded            = queue.back().superseded + 1;
+
+                            delete[] queue.back().data;
+                            queue.back()                    = new_entry;
+                        }
+                        else
+                        {
+                            queue.push(new_entry);
+                        }
+
                         controller_threads[controller_thread_idx]->queue_mutex.unlock();
                         WakeListenThread(controller_threads[controller_thread_idx]);
 

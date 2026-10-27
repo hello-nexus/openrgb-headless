@@ -92,6 +92,7 @@ typedef struct
     NetPacketHeader             header;
     unsigned char*              data;
     NetworkClientInfo*          client_info;
+    unsigned int                superseded;     /* older LED updates this entry replaced, each still owed an ACK */
 } NetworkServerControllerThreadQueueEntry;
 
 typedef struct
