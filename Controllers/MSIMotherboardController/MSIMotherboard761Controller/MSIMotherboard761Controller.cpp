@@ -484,6 +484,24 @@ bool MSIMotherboard761Controller::Update
     SendConfiguration();
 
     /*-----------------------------------------------------*\
+    | Clean headers due a keepalive take turns, oldest      |
+    | first, one per update, so their reports do not stall  |
+    | a single update                                       |
+    \*-----------------------------------------------------*/
+    int keepalive_index = -1;
+
+    for(unsigned int i = 0; i < sizeof(packets) / sizeof(packets[0]); i++)
+    {
+        bool unused = (packets[i]->zone == MSI_ZONE_J_PIPE_1) && (numof_pipe1_leds == 0);
+
+        if(!unused && !packets[i]->dirty && ((now - last_sent[i]) >= kKeepaliveMs)
+        && ((keepalive_index == -1) || (last_sent[i] < last_sent[keepalive_index])))
+        {
+            keepalive_index = (int)i;
+        }
+    }
+
+    /*-----------------------------------------------------*\
     | Only send changed zones, plus a keepalive. Each       |
     | report is slow, so resending unchanged headers caps   |
     | the update rate, and on boards with JPIPE1 updating   |
@@ -498,7 +516,7 @@ bool MSIMotherboard761Controller::Update
             continue;
         }
 
-        if(!packet->dirty && ((now - last_sent[i]) < kKeepaliveMs))
+        if(!packet->dirty && ((int)i != keepalive_index))
         {
             continue;
         }
