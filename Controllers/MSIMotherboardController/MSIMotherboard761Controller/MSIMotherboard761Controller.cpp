@@ -26,6 +26,12 @@
 #define ARRAY_ROW_RAW(X, Y) X*16 + Y
 #define SETUP_ARRAY_SIZE 290
 
+/*---------------------------------------------------------*\
+| Unchanged headers are still resent this often so a        |
+| firmware fallback or another writer gets repaired         |
+\*---------------------------------------------------------*/
+static const std::chrono::milliseconds kKeepaliveMs(1000);
+
 struct mystic_light_761_config
 {
     const std::string *                      name;                  // Name of the board
@@ -244,7 +250,7 @@ unsigned char * initializer_array()
 
 void init_packet(FeaturePacket_Zone_761 * packet)
 {
-    packet->dirty         = false;
+    packet->dirty         = true;
     packet->packet.fixed1 = 0x09;
     packet->packet.fixed2 = 0x00;
     packet->packet.fixed3 = 0x00;
@@ -473,12 +479,33 @@ bool MSIMotherboard761Controller::Update
 {
     bool flag = true;
     FeaturePacket_Zone_761* packets[] = { &data->jaf, &data->jargb1, &data->jargb2, &data->jargb3, &data->jpipe1 };
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
     SendConfiguration();
 
     /*-----------------------------------------------------*\
-    | Only send changed zones on boards with JPIPE1 so     |
-    | updating onboard LEDs does not clear the headers.    |
+    | Clean headers due a keepalive take turns, oldest      |
+    | first, one per update, so their reports do not stall  |
+    | a single update                                       |
+    \*-----------------------------------------------------*/
+    int keepalive_index = -1;
+
+    for(unsigned int i = 0; i < sizeof(packets) / sizeof(packets[0]); i++)
+    {
+        bool unused = (packets[i]->zone == MSI_ZONE_J_PIPE_1) && (numof_pipe1_leds == 0);
+
+        if(!unused && !packets[i]->dirty && ((now - last_sent[i]) >= kKeepaliveMs)
+        && ((keepalive_index == -1) || (last_sent[i] < last_sent[keepalive_index])))
+        {
+            keepalive_index = (int)i;
+        }
+    }
+
+    /*-----------------------------------------------------*\
+    | Only send changed zones, plus a keepalive. Each       |
+    | report is slow, so resending unchanged headers caps   |
+    | the update rate, and on boards with JPIPE1 updating   |
+    | onboard LEDs would clear the headers.                 |
     \*-----------------------------------------------------*/
     for(unsigned int i = 0; i < sizeof(packets) / sizeof(packets[0]); i++)
     {
@@ -489,7 +516,7 @@ bool MSIMotherboard761Controller::Update
             continue;
         }
 
-        if((numof_pipe1_leds > 0) && !packet->dirty)
+        if(!packet->dirty && ((int)i != keepalive_index))
         {
             continue;
         }
@@ -501,6 +528,7 @@ bool MSIMotherboard761Controller::Update
         else
         {
             packet->dirty = false;
+            last_sent[i]  = now;
         }
     }
 
@@ -576,10 +604,15 @@ void MSIMotherboard761Controller::SetLedColor
 
     if((ptr != nullptr) && (index < GetMaxDirectLeds(zone)))
     {
-        set_data_color(ptr, candidate_index,     red);
-        set_data_color(ptr, candidate_index + 1, grn);
-        set_data_color(ptr, candidate_index + 2, blu);
-        ptr->dirty = true;
+        unsigned char * color = &ptr->packet.colors[candidate_index];
+
+        if((color[0] != red) || (color[1] != grn) || (color[2] != blu))
+        {
+            set_data_color(ptr, candidate_index,     red);
+            set_data_color(ptr, candidate_index + 1, grn);
+            set_data_color(ptr, candidate_index + 2, blu);
+            ptr->dirty = true;
+        }
     }
 }
 
@@ -724,7 +757,11 @@ void MSIMotherboard761Controller::SetZoneLEDCount
         setup_dirty                     = true;
     }
 
-    packet->packet.hdr2 = led_num;
+    if(packet->packet.hdr2 != led_num)
+    {
+        packet->packet.hdr2 = led_num;
+        packet->dirty       = true;
+    }
 }
 
 void MSIMotherboard761Controller::SendConfiguration()
@@ -744,6 +781,7 @@ void MSIMotherboard761Controller::SendConfiguration()
     }
 
     setup_dirty = false;
+    MarkAllDirty();
 }
 
 void MSIMotherboard761Controller::SetDirectMode
@@ -752,6 +790,26 @@ void MSIMotherboard761Controller::SetDirectMode
     )
 {
     SelectPerLedProtocol();
+
+    /*-----------------------------------------------------*\
+    | Resend every header on the first update after a mode  |
+    | change                                                |
+    \*-----------------------------------------------------*/
+    MarkAllDirty();
+}
+
+void MSIMotherboard761Controller::MarkAllDirty()
+{
+    if(!dev)
+    {
+        return;
+    }
+
+    data->jaf.dirty    = true;
+    data->jargb1.dirty = true;
+    data->jargb2.dirty = true;
+    data->jargb3.dirty = true;
+    data->jpipe1.dirty = true;
 }
 
 bool MSIMotherboard761Controller::IsDirectModeActive()

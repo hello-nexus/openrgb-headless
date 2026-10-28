@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstring>
 #include <hidapi.h>
 #include "MSIMotherboardCommon.h"
@@ -141,6 +142,7 @@ private:
     unsigned char*                                          setup_data;
     bool                                                    setup_dirty;
     int                                                     numof_pipe1_leds;
+    std::chrono::steady_clock::time_point                   last_sent[5];
 
     bool            ReadSettings();
     bool            ReadFwVersion();
@@ -157,4 +159,5 @@ private:
             MSI_ZONE zone
             );
     void            SelectPerLedProtocol();
+    void            MarkAllDirty();
 };
