@@ -13,6 +13,7 @@
 #include <cstring>
 #include "ASRockPolychromeUSBController.h"
 #include "dmiinfo.h"
+#include "LogManager.h"
 #include "ResourceManager.h"
 #include "RGBController.h"
 #include "SettingsManager.h"
@@ -117,18 +118,18 @@ void PolychromeUSBController::SetDeviceInfo()
         settings_manager->SetSettings(detector_name, device_settings);
         settings_manager->SaveSettings();
     }
-    else
+
+    for(std::size_t idx = 0; idx < 8; idx++)
     {
-        for(std::size_t idx = 0; idx < 8; idx++)
+        if(device_settings[json_rgswap].contains(polychrome_USB_zone_names[idx]))
         {
-            if(device_settings[json_rgswap].contains(polychrome_USB_zone_names[idx]))
-            {
-                rgswapconfig[idx] = device_settings[json_rgswap][polychrome_USB_zone_names[idx]];
-            }
+            rgswapconfig[idx] = device_settings[json_rgswap][polychrome_USB_zone_names[idx]];
         }
     }
 
-    bool rgswap_final[8] = {0};
+    unsigned char rgswap_mask    = 0;
+    unsigned char available_mask = 0;
+    std::string   rgswap_log;
 
     for (unsigned int zonecnt = 0; zonecnt < POLYCHROME_USB_ZONE_MAX_NUM; zonecnt++)
     {
@@ -141,9 +142,29 @@ void PolychromeUSBController::SetDeviceInfo()
             continue;
         }
 
+        /*---------------------------------------------------------*\
+        | Settings alone pick the channel order of the RGB and ARGB |
+        | headers. Direct mode zeroes the hardware RGSwap register, |
+        | so its bit at detection is not authoritative. Onboard     |
+        | zones (PCH, IO Cover, PCB) keep hardware bit || setting.  |
+        \*---------------------------------------------------------*/
+        bool hw_rgswap = (configtable[8] >> zonecnt) & 1;
+        bool onboard   = (zonecnt == POLYCHROME_USB_ZONE_PCH) || (zonecnt == POLYCHROME_USB_ZONE_IOCOVER) || (zonecnt == POLYCHROME_USB_ZONE_PCB);
+
+        if(hw_rgswap && !onboard && !rgswapconfig[zonecnt])
+        {
+            LOG_WARNING("[ASRock Polychrome USB] %s: hardware RGSwap set, not used for channel order (setting is off)", polychrome_USB_zone_names[zonecnt]);
+        }
+
         newdev_info.num_leds = configtable[zonecnt];
-        newdev_info.rgswap = ((configtable[8] >> zonecnt) & 1) || rgswapconfig[zonecnt];
-        rgswap_final[zonecnt] = newdev_info.rgswap;
+        newdev_info.rgswap = rgswapconfig[zonecnt] || (onboard && hw_rgswap);
+
+        if(newdev_info.rgswap)
+        {
+            rgswap_mask |= (unsigned char)(1 << zonecnt);
+        }
+        available_mask |= (unsigned char)(1 << zonecnt);
+        rgswap_log += std::string(rgswap_log.empty() ? "" : ", ") + polychrome_USB_zone_names[zonecnt] + "=" + (newdev_info.rgswap ? "1" : "0");
 
 		/*--------------------------------------------------------------------------------------------------*\
 		| We will need to know what zone type this is, so that we can look up the name and make calls later. |
@@ -187,8 +208,14 @@ void PolychromeUSBController::SetDeviceInfo()
         device_info.push_back(newdev_info);
     }
 
-    // set rgswap to match our settings
-    WriteRGSwap(rgswap_final[0], rgswap_final[1], rgswap_final[2], rgswap_final[3], rgswap_final[4], rgswap_final[5], rgswap_final[6], rgswap_final[7]);
+    LOG_WARNING("[ASRock Polychrome USB] %s: RGSwap register 0x%02X, available zones 0x%02X, rgswap: %s", device_name.c_str(), configtable[8], available_mask, rgswap_log.c_str());
+
+    /*---------------------------------------------------------*\
+    | Set the bits our settings ask for without clearing any    |
+    | bit the register already had                              |
+    \*---------------------------------------------------------*/
+    unsigned char rgconfig = configtable[8] | rgswap_mask;
+    WriteHeader(POLYCHROME_USB_RGSWAP_CFG, &rgconfig, 1);
 }
 
 void PolychromeUSBController::SetZoneSize(int zone, int new_size)

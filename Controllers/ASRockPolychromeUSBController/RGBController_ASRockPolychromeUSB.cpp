@@ -309,6 +309,16 @@ void RGBController_PolychromeUSB::SetupZones()
      active_mode = zones_info.size() > 1 ? zones_info[0].mode : 0x0;
 
      /*-----------------------------------------------------*\
+     | Detection leaves hardware RGSwap bits set, and Direct |
+     | frames go out before any DeviceUpdateMode. This is    |
+     | the DeviceUpdateLEDs test for Direct.                 |
+     \*-----------------------------------------------------*/
+     if(!zones_info.empty() && zones_info[0].mode == POLYCHROME_USB_MODE_DIRECT)
+     {
+        controller->SetRGSwap(false);
+     }
+
+     /*-----------------------------------------------------*\
      | If in Direct mode, reset all Leds to match interface  |
      \*-----------------------------------------------------*/
      if(active_mode == 0x0F)
