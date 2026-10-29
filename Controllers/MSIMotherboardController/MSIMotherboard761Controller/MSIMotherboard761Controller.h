@@ -84,6 +84,23 @@ public:
 
     void        SendConfiguration();
 
+    /*-----------------------------------------------------*\
+    | Board areas driven through their setup rows           |
+    \*-----------------------------------------------------*/
+    const std::vector<MSI_ZONE>&
+    GetBoardZones()
+    {
+        return board_zones;
+    }
+
+    void        SetBoardZoneColor
+                    (
+                    MSI_ZONE        zone,
+                    unsigned char   red,
+                    unsigned char   grn,
+                    unsigned char   blu
+                    );
+
     bool        Update
                     (
                     bool save
@@ -143,6 +160,11 @@ private:
     bool                                                    setup_dirty;
     int                                                     numof_pipe1_leds;
     std::chrono::steady_clock::time_point                   last_sent[5];
+    std::vector<MSI_ZONE>                                   board_zones;
+    unsigned char                                           board_colors[3][3];
+    bool                                                    board_color_set[3];
+    bool                                                    board_dirty;
+    std::chrono::steady_clock::time_point                   last_board_sent;
 
     bool            ReadSettings();
     bool            ReadFwVersion();
@@ -158,6 +180,7 @@ private:
             (
             MSI_ZONE zone
             );
+    void            SendBoardRows(std::chrono::steady_clock::time_point now);
     void            SelectPerLedProtocol();
     void            MarkAllDirty();
 };

@@ -30,6 +30,17 @@ const ZoneDescription led_zones[] =
     ZoneDescription{ "IO Shield",   MSI_ZONE_J_PIPE_1 },
 };
 
+/*---------------------------------------------------------*\
+| Board areas on boards that drive them through their setup |
+| rows, named after the row because their place is unknown  |
+\*---------------------------------------------------------*/
+const ZoneDescription board_zones[] =
+{
+    ZoneDescription{ "JPIPE1",      MSI_ZONE_J_PIPE_1 },
+    ZoneDescription{ "JPIPE3",      MSI_ZONE_J_PIPE_3 },
+    ZoneDescription{ "JRGB1",       MSI_ZONE_J_RGB_1  },
+};
+
 static std::vector<const ZoneDescription*> zone_description;
 
 static int IndexOfZoneForType(MSI_ZONE zone_type)
@@ -69,6 +80,20 @@ RGBController_MSIMotherboard761::RGBController_MSIMotherboard761
             if(led_zones[j].zone_type == (*supported_zones)[i])
             {
                 zone_description.push_back(&led_zones[j]);
+                break;
+            }
+        }
+    }
+
+    const std::vector<MSI_ZONE>& controller_board_zones = controller->GetBoardZones();
+
+    for(std::size_t i = 0; i < controller_board_zones.size(); ++i)
+    {
+        for(std::size_t j = 0; j < sizeof(board_zones) / sizeof(board_zones[0]); ++j)
+        {
+            if(board_zones[j].zone_type == controller_board_zones[i])
+            {
+                zone_description.push_back(&board_zones[j]);
                 break;
             }
         }

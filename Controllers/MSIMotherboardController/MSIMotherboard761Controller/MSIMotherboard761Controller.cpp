@@ -312,7 +312,7 @@ static bool preserve_unexposed_rows
                 continue;
             }
 
-            if((mode == 0) || (mode > 0x0A) || (current[ARRAY_ROW_RAW(i, 14)] > 3))
+            if((mode == 0) || (mode > 0x09) || (current[ARRAY_ROW_RAW(i, 14)] > 3))
             {
                 continue;
             }
@@ -332,7 +332,7 @@ static bool preserve_unexposed_rows
         | Copied rows that follow select-all take its       |
         | settings, so keep the board's select-all row too  |
         \*-------------------------------------------------*/
-        if(follows_select_all && (current[ARRAY_ROW_RAW(17, 1)] >= 1) && (current[ARRAY_ROW_RAW(17, 1)] <= 0x0A))
+        if(follows_select_all && (current[ARRAY_ROW_RAW(17, 1)] >= 1) && (current[ARRAY_ROW_RAW(17, 1)] <= 0x09))
         {
             memcpy(&conf_arr[ARRAY_ROW_RAW(17, 1)], &current[ARRAY_ROW_RAW(17, 1)], 16);
             kept.append(" select-all");
@@ -365,6 +365,11 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
     location                                        = path;
     name                                            = dev_name;
 
+    board_dirty                                     = false;
+    last_board_sent                                 = std::chrono::steady_clock::time_point();
+    memset(board_colors, 0, sizeof(board_colors));
+    memset(board_color_set, 0, sizeof(board_color_set));
+
     const mystic_light_761_config * board_config    = nullptr;
     for(std::size_t i = 0; i < NUM_CONFS; i++)
     {
@@ -379,6 +384,19 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
     {
         supported_zones     = (std::vector<MSI_ZONE>*) board_config->supported_zones;
         numof_pipe1_leds    = board_config->numof_pipe1_leds;
+
+        /*-------------------------------------------------*\
+        | The CARBON has lit areas on rows no header or     |
+        | zone covers. Which one is which is unknown, so    |
+        | they are exposed under their row names            |
+        \*-------------------------------------------------*/
+        if((board_config->name == &(board_names[6])) && (numof_pipe1_leds == 0))
+        {
+            board_zones.push_back(MSI_ZONE_J_PIPE_1);
+            board_zones.push_back(MSI_ZONE_J_PIPE_3);
+            board_zones.push_back(MSI_ZONE_J_RGB_1);
+        }
+
         unsigned int max    = 0;
 
         for(std::size_t i = 0; i < board_config->supported_zones[0].size(); i++)
@@ -584,6 +602,7 @@ bool MSIMotherboard761Controller::Update
     std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
     SendConfiguration();
+    SendBoardRows(now);
 
     /*-----------------------------------------------------*\
     | Clean headers due a keepalive take turns, oldest      |
@@ -680,6 +699,15 @@ void MSIMotherboard761Controller::SetLedColor
     unsigned char   blu
     )
 {
+    for(std::size_t i = 0; i < board_zones.size(); i++)
+    {
+        if(board_zones[i] == zone)
+        {
+            SetBoardZoneColor(zone, red, grn, blu);
+            return;
+        }
+    }
+
     FeaturePacket_Zone_761 * ptr = nullptr;
     switch(zone)
     {
@@ -886,6 +914,94 @@ void MSIMotherboard761Controller::SendConfiguration()
     MarkAllDirty();
 }
 
+/*---------------------------------------------------------*\
+| A setup report is slow, so board rows are sent at most    |
+| this often. A color change that arrives sooner waits for  |
+| the next update.                                          |
+\*---------------------------------------------------------*/
+static const std::chrono::milliseconds kBoardRowMs(300);
+
+/*---------------------------------------------------------*\
+| Row layout: mode, color 1, three unused colors, color     |
+| count minus one, options, LED count.                      |
+| Options: user colors, full brightness, medium speed, not  |
+| following the select-all row.                             |
+\*---------------------------------------------------------*/
+static const unsigned char kModeOff      = 0x00;
+static const unsigned char kModeSteady   = 0x02;
+static const unsigned char kBoardOptions = 0x35;
+
+void MSIMotherboard761Controller::SetBoardZoneColor
+    (
+    MSI_ZONE        zone,
+    unsigned char   red,
+    unsigned char   grn,
+    unsigned char   blu
+    )
+{
+    if(!dev || !setup_data)
+    {
+        return;
+    }
+
+    for(std::size_t i = 0; i < board_zones.size(); i++)
+    {
+        if(board_zones[i] != zone)
+        {
+            continue;
+        }
+
+        if(board_color_set[i]
+        && (board_colors[i][0] == red) && (board_colors[i][1] == grn) && (board_colors[i][2] == blu))
+        {
+            return;
+        }
+
+        board_colors[i][0]  = red;
+        board_colors[i][1]  = grn;
+        board_colors[i][2]  = blu;
+        board_color_set[i]  = true;
+
+        bool black          = (red == 0) && (grn == 0) && (blu == 0);
+
+        for(int col = 2; col <= 14; col++)
+        {
+            setup_data[ARRAY_ROW(zone, col)] = 0x00;
+        }
+
+        setup_data[ARRAY_ROW(zone, 1)]  = black ? kModeOff : kModeSteady;
+        setup_data[ARRAY_ROW(zone, 2)]  = red;
+        setup_data[ARRAY_ROW(zone, 3)]  = grn;
+        setup_data[ARRAY_ROW(zone, 4)]  = blu;
+        setup_data[ARRAY_ROW(zone, 15)] = kBoardOptions;
+        board_dirty                     = true;
+        return;
+    }
+}
+
+void MSIMotherboard761Controller::SendBoardRows
+    (
+    std::chrono::steady_clock::time_point now
+    )
+{
+    if(!dev || !board_dirty || ((now - last_board_sent) < kBoardRowMs))
+    {
+        return;
+    }
+
+    /*-----------------------------------------------------*\
+    | Stays dirty on failure so a later update tries again  |
+    \*-----------------------------------------------------*/
+    if(hid_send_feature_report(dev, setup_data, SETUP_ARRAY_SIZE) < 0)
+    {
+        LOG_ERROR("[%s]: failed to send board rows", name.c_str());
+        return;
+    }
+
+    board_dirty     = false;
+    last_board_sent = now;
+}
+
 void MSIMotherboard761Controller::SetDirectMode
     (
     bool /*mode*/
@@ -924,6 +1040,14 @@ size_t MSIMotherboard761Controller::GetMaxDirectLeds
     MSI_ZONE zone
     )
 {
+    for(std::size_t i = 0; i < board_zones.size(); i++)
+    {
+        if(board_zones[i] == zone)
+        {
+            return 1;
+        }
+    }
+
     switch(zone)
     {
         case MSI_ZONE_JAF:
