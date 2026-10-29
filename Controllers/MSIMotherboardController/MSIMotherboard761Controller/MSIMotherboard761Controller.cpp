@@ -369,6 +369,7 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
     last_board_sent                                 = std::chrono::steady_clock::time_point();
     memset(board_colors, 0, sizeof(board_colors));
     memset(board_color_set, 0, sizeof(board_color_set));
+    memset(board_claimed, 0, sizeof(board_claimed));
 
     const mystic_light_761_config * board_config    = nullptr;
     for(std::size_t i = 0; i < NUM_CONFS; i++)
@@ -507,6 +508,11 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
         \*-------------------------------------------------*/
         setup_data  = conf_arr;
         setup_dirty = false;
+
+        if(dev)
+        {
+            board_last_sent.assign(conf_arr, conf_arr + SETUP_ARRAY_SIZE);
+        }
     }
     else
     {
@@ -911,15 +917,18 @@ void MSIMotherboard761Controller::SendConfiguration()
     }
 
     setup_dirty = false;
+    board_last_sent.assign(setup_data, setup_data + SETUP_ARRAY_SIZE);
     MarkAllDirty();
 }
 
 /*---------------------------------------------------------*\
 | A setup report is slow, so board rows are sent at most    |
-| this often. A color change that arrives sooner waits for  |
-| the next update.                                          |
+| this often, and only when their bytes changed. A color    |
+| change that arrives sooner waits for the next update,     |
+| except when every claimed area is going dark, so a        |
+| shutdown or blackout reaches the board.                   |
 \*---------------------------------------------------------*/
-static const std::chrono::milliseconds kBoardRowMs(300);
+static const std::chrono::milliseconds kBoardRowMs(1000);
 
 /*---------------------------------------------------------*\
 | Row layout: mode, color 1, three unused colors, color     |
@@ -951,6 +960,23 @@ void MSIMotherboard761Controller::SetBoardZoneColor
             continue;
         }
 
+        bool black = (red == 0) && (grn == 0) && (blu == 0);
+
+        /*-------------------------------------------------*\
+        | The whole device buffer is pushed, so an area     |
+        | nobody assigned receives black. Keep the board's  |
+        | own effect until a real color arrives.            |
+        \*-------------------------------------------------*/
+        if(!board_claimed[i])
+        {
+            if(black)
+            {
+                return;
+            }
+
+            board_claimed[i] = true;
+        }
+
         if(board_color_set[i]
         && (board_colors[i][0] == red) && (board_colors[i][1] == grn) && (board_colors[i][2] == blu))
         {
@@ -961,8 +987,6 @@ void MSIMotherboard761Controller::SetBoardZoneColor
         board_colors[i][1]  = grn;
         board_colors[i][2]  = blu;
         board_color_set[i]  = true;
-
-        bool black          = (red == 0) && (grn == 0) && (blu == 0);
 
         for(int col = 2; col <= 14; col++)
         {
@@ -984,8 +1008,35 @@ void MSIMotherboard761Controller::SendBoardRows
     std::chrono::steady_clock::time_point now
     )
 {
-    if(!dev || !board_dirty || ((now - last_board_sent) < kBoardRowMs))
+    if(!dev || !board_dirty)
     {
+        return;
+    }
+
+    bool all_dark   = false;
+
+    for(std::size_t i = 0; i < board_zones.size(); i++)
+    {
+        if(board_claimed[i])
+        {
+            all_dark = true;
+
+            if((board_colors[i][0] != 0) || (board_colors[i][1] != 0) || (board_colors[i][2] != 0))
+            {
+                all_dark = false;
+                break;
+            }
+        }
+    }
+
+    if(!all_dark && ((now - last_board_sent) < kBoardRowMs))
+    {
+        return;
+    }
+
+    if((board_last_sent.size() == SETUP_ARRAY_SIZE) && (memcmp(board_last_sent.data(), setup_data, SETUP_ARRAY_SIZE) == 0))
+    {
+        board_dirty = false;
         return;
     }
 
@@ -998,6 +1049,7 @@ void MSIMotherboard761Controller::SendBoardRows
         return;
     }
 
+    board_last_sent.assign(setup_data, setup_data + SETUP_ARRAY_SIZE);
     board_dirty     = false;
     last_board_sent = now;
 }

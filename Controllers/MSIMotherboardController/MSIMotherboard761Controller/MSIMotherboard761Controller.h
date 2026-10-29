@@ -163,6 +163,8 @@ private:
     std::vector<MSI_ZONE>                                   board_zones;
     unsigned char                                           board_colors[3][3];
     bool                                                    board_color_set[3];
+    bool                                                    board_claimed[3];
+    std::vector<unsigned char>                              board_last_sent;
     bool                                                    board_dirty;
     std::chrono::steady_clock::time_point                   last_board_sent;
 
