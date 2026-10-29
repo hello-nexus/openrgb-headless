@@ -76,6 +76,8 @@ using namespace std::chrono_literals;
 \*---------------------------------------------------------*/
 static thread_local RGBController* current_device_call_controller = nullptr;
 
+namespace
+{
 class DeviceCallScope
 {
 public:
@@ -95,6 +97,7 @@ public:
 private:
     RGBController* previous;
 };
+}
 
 RGBController::RGBController()
 {
