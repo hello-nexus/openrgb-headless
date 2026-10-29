@@ -253,43 +253,63 @@ unsigned char * initializer_array()
 | The setup report switches areas on and off. Areas this    |
 | driver does not expose (the board's own LEDs among them)  |
 | must keep what the board already has, so read the current |
-| setup back and copy those rows over the zeroed ones. The  |
-| read is only trusted when it has the setup report's       |
-| layout (size, id, every row starting with its marker).    |
-| Returns false when it does not, and the rows stay zeroed. |
+| setup back and copy those rows over the zeroed ones. Only |
+| the report id and size are checked for the whole read;    |
+| each row is copied only if it carries its row marker.     |
+| Boards with a JPIPE1 zone keep their JPIPE rows exactly   |
+| as configured, since earlier fixes switch some of those   |
+| off on purpose. Returns false when the read is unusable,  |
+| and the rows stay zeroed.                                 |
 \*---------------------------------------------------------*/
 static bool preserve_unexposed_rows
     (
     hid_device *                    dev,
     unsigned char *                 conf_arr,
     const std::vector<MSI_ZONE> *   supported_zones,
+    int                             pipe1_leds,
     const std::string &             name
     )
 {
-    unsigned char current[SETUP_ARRAY_SIZE];
+    /*-----------------------------------------------------*    | The buffer must hold the device's largest feature     |
+    | report or the read fails                              |
+    \*-----------------------------------------------------*/
+    unsigned char current[1024];
     memset(current, 0, sizeof(current));
     current[0] = initial_setup_array[0];
 
-    int res = hid_get_feature_report(dev, current, SETUP_ARRAY_SIZE);
+    int res = hid_get_feature_report(dev, current, sizeof(current));
 
-    bool valid = (res == SETUP_ARRAY_SIZE) && (current[0] == initial_setup_array[0]);
-
-    for(int i = 0; valid && i < 18; i++)
-    {
-        valid = (current[ARRAY_ROW_RAW(i, 1)] == 0x09);
-    }
-
-    if(!valid)
+    if((res < SETUP_ARRAY_SIZE) || (current[0] != initial_setup_array[0]))
     {
         LOG_WARNING("[%s] setup readback unusable (%i bytes), unexposed areas are switched off", name.c_str(), res);
         return false;
     }
 
+    std::string headers;
     std::string kept;
+    char        hex[16];
+
+    for(int i = 0; i < 18; i++)
+    {
+        snprintf(hex, sizeof(hex), " %02X%02X", current[ARRAY_ROW_RAW(i, 1)], current[ARRAY_ROW_RAW(i, 2)]);
+        headers.append(hex);
+    }
 
     for(int i = 4; i < 17; i++)
     {
+        bool is_jpipe = (setup_map[i] >= MSI_ZONE_J_PIPE_1) && (setup_map[i] <= MSI_ZONE_J_PIPE_5);
+
         if(std::find(supported_zones->begin(), supported_zones->end(), setup_map[i]) != supported_zones->end())
+        {
+            continue;
+        }
+
+        if((pipe1_leds > 0) && is_jpipe)
+        {
+            continue;
+        }
+
+        if(current[ARRAY_ROW_RAW(i, 1)] != 0x09)
         {
             continue;
         }
@@ -302,6 +322,7 @@ static bool preserve_unexposed_rows
         }
     }
 
+    LOG_WARNING("[%s] setup readback %i bytes, row headers:%s", name.c_str(), res, headers.c_str());
     LOG_WARNING("[%s] kept board setup for unexposed areas, active rows:%s", name.c_str(), kept.empty() ? " none" : kept.c_str());
     return true;
 }
@@ -410,7 +431,7 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
             | Do not switch off areas this driver does not  |
             | expose, such as the onboard LEDs              |
             \*---------------------------------------------*/
-            preserve_unexposed_rows(dev, conf_arr, supported_zones, name);
+            preserve_unexposed_rows(dev, conf_arr, supported_zones, numof_pipe1_leds, name);
 
             /*---------------------------------------------*\
             | Push config so setting colors works           |
