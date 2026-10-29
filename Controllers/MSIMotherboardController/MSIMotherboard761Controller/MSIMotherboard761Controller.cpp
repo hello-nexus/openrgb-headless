@@ -13,6 +13,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
 #include <vector>
 #include "LogManager.h"
 #include "MSIMotherboard761Controller.h"
@@ -248,6 +249,63 @@ unsigned char * initializer_array()
     return arr;
 }
 
+/*---------------------------------------------------------*\
+| The setup report switches areas on and off. Areas this    |
+| driver does not expose (the board's own LEDs among them)  |
+| must keep what the board already has, so read the current |
+| setup back and copy those rows over the zeroed ones. The  |
+| read is only trusted when it has the setup report's       |
+| layout (size, id, every row starting with its marker).    |
+| Returns false when it does not, and the rows stay zeroed. |
+\*---------------------------------------------------------*/
+static bool preserve_unexposed_rows
+    (
+    hid_device *                    dev,
+    unsigned char *                 conf_arr,
+    const std::vector<MSI_ZONE> *   supported_zones,
+    const std::string &             name
+    )
+{
+    unsigned char current[SETUP_ARRAY_SIZE];
+    memset(current, 0, sizeof(current));
+    current[0] = initial_setup_array[0];
+
+    int res = hid_get_feature_report(dev, current, SETUP_ARRAY_SIZE);
+
+    bool valid = (res == SETUP_ARRAY_SIZE) && (current[0] == initial_setup_array[0]);
+
+    for(int i = 0; valid && i < 18; i++)
+    {
+        valid = (current[ARRAY_ROW_RAW(i, 1)] == 0x09);
+    }
+
+    if(!valid)
+    {
+        LOG_WARNING("[%s] setup readback unusable (%i bytes), unexposed areas are switched off", name.c_str(), res);
+        return false;
+    }
+
+    std::string kept;
+
+    for(int i = 4; i < 17; i++)
+    {
+        if(std::find(supported_zones->begin(), supported_zones->end(), setup_map[i]) != supported_zones->end())
+        {
+            continue;
+        }
+
+        memcpy(&conf_arr[ARRAY_ROW_RAW(i, 1)], &current[ARRAY_ROW_RAW(i, 1)], 16);
+
+        if(current[ARRAY_ROW_RAW(i, 15)] & 0x01)
+        {
+            kept.append(" ").append(std::to_string(i));
+        }
+    }
+
+    LOG_WARNING("[%s] kept board setup for unexposed areas, active rows:%s", name.c_str(), kept.empty() ? " none" : kept.c_str());
+    return true;
+}
+
 void init_packet(FeaturePacket_Zone_761 * packet)
 {
     packet->dirty         = true;
@@ -347,6 +405,12 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
             ReadName();
             ReadFwVersion();
             ReadSettings();
+
+            /*---------------------------------------------*\
+            | Do not switch off areas this driver does not  |
+            | expose, such as the onboard LEDs              |
+            \*---------------------------------------------*/
+            preserve_unexposed_rows(dev, conf_arr, supported_zones, name);
 
             /*---------------------------------------------*\
             | Push config so setting colors works           |
