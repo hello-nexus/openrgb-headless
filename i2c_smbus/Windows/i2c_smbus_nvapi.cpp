@@ -54,7 +54,7 @@ void i2c_smbus_nvapi::LogFailure(NV_STATUS ret, char read_write, u8 addr, int re
 
     if(now - last_failure_report >= NVAPI_I2C_FAILURE_SUMMARY_INTERVAL)
     {
-        LOG_WARNING("[%s] %u more NvAPI I2C failures since last report (latest: %s status %d, address 0x%02X, register %s)", info.device_name, failures_suppressed, op, (int)ret, addr, reg_str);
+        LOG_WARNING("[%s] %u more NvAPI I2C failures since last report, %u total (latest: %s status %d, address 0x%02X, register %s)", info.device_name, failures_suppressed, failure_count, op, (int)ret, addr, reg_str);
         failures_suppressed = 0;
         last_failure_report = now;
     }
