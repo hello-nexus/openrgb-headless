@@ -9,6 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
 #include <cstring>
 #include <queue>
 #include "i2c_smbus.h"
@@ -1720,6 +1721,10 @@ void NetworkServer::ListenThreadFunction(NetworkClientInfo* client_info)
                 status = ProcessRequest_NexusCooling(client_info, header.pkt_id, header.pkt_size, data, header.pkt_dev_id);
                 break;
 
+            case NET_PACKET_ID_NEXUS_WRITE_HEALTH:
+                status = ProcessRequest_NexusWriteHealth(client_info, header.pkt_dev_id);
+                break;
+
             default:
                 status = NET_PACKET_STATUS_ERROR_UNSUPPORTED;
                 break;
@@ -3020,6 +3025,74 @@ NetPacketStatus NetworkServer::ProcessRequest_NexusCooling(NetworkClientInfo* cl
     send_in_progress.lock();
     send(client_info->client_sock, (const char *)&reply_hdr, sizeof(NetPacketHeader), MSG_NOSIGNAL);
     send(client_info->client_sock, (const char *)payload.data(), (int)payload.size(), MSG_NOSIGNAL);
+    send_in_progress.unlock();
+
+    return(NET_PACKET_STATUS_OK);
+}
+
+NetPacketStatus NetworkServer::ProcessRequest_NexusWriteHealth(NetworkClientInfo* client_info, unsigned int controller_id)
+{
+    /*-----------------------------------------------------*\
+    | Controller IDs came with the ACK protocol version    |
+    \*-----------------------------------------------------*/
+    if(client_info->client_protocol_version < 6)
+    {
+        return(NET_PACKET_STATUS_ERROR_UNSUPPORTED);
+    }
+
+    std::shared_lock<std::shared_mutex> ids_lock(controller_ids_mutex);
+
+    bool            controller_idx_valid;
+    unsigned int    controller_idx  = index_from_id_locked(controller_id, client_info->client_protocol_version, &controller_idx_valid);
+
+    if(!controller_idx_valid || controller_idx >= controllers.size())
+    {
+        return(NET_PACKET_STATUS_ERROR_INVALID_ID);
+    }
+
+    RGBController*  controller      = controllers[controller_idx];
+    uint32_t        failures        = controller->GetWriteFailures();
+    uint32_t        successes       = controller->GetWriteSuccesses();
+    std::chrono::steady_clock::time_point
+                    last_failure    = controller->GetLastWriteFailureTime();
+
+    ids_lock.unlock();
+
+    /*-----------------------------------------------------*\
+    | 0xFFFFFFFF means no failure yet; a real age saturates |
+    | one below it                                          |
+    \*-----------------------------------------------------*/
+    uint32_t        ms_since_failure = 0xFFFFFFFF;
+
+    if(last_failure != (std::chrono::steady_clock::time_point::min)())
+    {
+        long long age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_failure).count();
+
+        ms_since_failure = (uint32_t)std::min<long long>(std::max<long long>(age_ms, 0), 0xFFFFFFFE);
+    }
+
+    /*-----------------------------------------------------*\
+    | Reply body, little-endian: write_failures,            |
+    | write_successes, ms_since_last_failure                |
+    \*-----------------------------------------------------*/
+    unsigned char   payload[12];
+    uint32_t        fields[3]       = { failures, successes, ms_since_failure };
+
+    for(unsigned int field_idx = 0; field_idx < 3; field_idx++)
+    {
+        for(unsigned int byte_idx = 0; byte_idx < 4; byte_idx++)
+        {
+            payload[(field_idx * 4) + byte_idx] = (unsigned char)(fields[field_idx] >> (8 * byte_idx));
+        }
+    }
+
+    NetPacketHeader reply_hdr;
+
+    InitNetPacketHeader(&reply_hdr, controller_id, NET_PACKET_ID_NEXUS_WRITE_HEALTH, sizeof(payload));
+
+    send_in_progress.lock();
+    send(client_info->client_sock, (const char *)&reply_hdr, sizeof(NetPacketHeader), MSG_NOSIGNAL);
+    send(client_info->client_sock, (const char *)payload, sizeof(payload), MSG_NOSIGNAL);
     send_in_progress.unlock();
 
     return(NET_PACKET_STATUS_OK);

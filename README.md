@@ -104,6 +104,17 @@ Everything that's not GUI-bound:
   cached state. The payload layouts are documented in
   `Controllers/CorsairCommanderCoreController/CorsairCommanderCoreCooling.h`;
   `tests/CorsairCommanderCoreCoolingTest.cpp` checks them.
+- **Bus write health over the SDK**: every SMBus/I2C write made inside a
+  controller's update calls (LEDs, zone LEDs, single LED, mode, zone mode,
+  save mode) is counted against that controller as a success (`>= 0`) or a
+  failure (`< 0`); reads are not counted. `NET_PACKET_ID_NEXUS_WRITE_HEALTH`
+  (40002), addressed by controller ID from protocol 6 with an empty body,
+  replies with the same packet ID and a 12-byte little-endian body:
+  `uint32 write_failures`, `uint32 write_successes`,
+  `uint32 ms_since_last_failure` (`0xFFFFFFFF` if the controller never failed).
+  Counters start at zero when the controller is created and wrap at 2^32. An
+  unknown controller ID gets an invalid-ID ACK, and a daemon without this
+  packet answers it with an unsupported ACK.
 
 ## License
 

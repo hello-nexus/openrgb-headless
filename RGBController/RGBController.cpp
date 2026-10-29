@@ -70,6 +70,32 @@
 
 using namespace std::chrono_literals;
 
+/*---------------------------------------------------------*\
+| Controller whose device call is running on this thread.   |
+| Bus write results are counted against it.                 |
+\*---------------------------------------------------------*/
+static thread_local RGBController* current_device_call_controller = nullptr;
+
+class DeviceCallScope
+{
+public:
+    explicit DeviceCallScope(RGBController* controller) : previous(current_device_call_controller)
+    {
+        current_device_call_controller = controller;
+    }
+
+    ~DeviceCallScope()
+    {
+        current_device_call_controller = previous;
+    }
+
+    DeviceCallScope(const DeviceCallScope&) = delete;
+    DeviceCallScope& operator=(const DeviceCallScope&) = delete;
+
+private:
+    RGBController* previous;
+};
+
 RGBController::RGBController()
 {
     /*-----------------------------------------------------*\
@@ -217,6 +243,51 @@ void RGBController::SetHidden(bool hidden)
         AccessMutex.unlock();
 
         SignalUpdate(RGBCONTROLLER_UPDATE_REASON_UNHIDDEN);
+    }
+}
+
+/*---------------------------------------------------------*\
+| Write Health Functions                                    |
+\*---------------------------------------------------------*/
+uint32_t RGBController::GetWriteFailures()
+{
+    return(write_failures.load());
+}
+
+uint32_t RGBController::GetWriteSuccesses()
+{
+    return(write_successes.load());
+}
+
+std::chrono::steady_clock::time_point RGBController::GetLastWriteFailureTime()
+{
+    std::chrono::steady_clock::rep ticks = last_write_failure_ticks.load();
+
+    if(ticks == (std::numeric_limits<std::chrono::steady_clock::rep>::min)())
+    {
+        return((std::chrono::steady_clock::time_point::min)());
+    }
+
+    return(std::chrono::steady_clock::time_point(std::chrono::steady_clock::duration(ticks)));
+}
+
+void RGBController::RecordWriteResult(bool success)
+{
+    RGBController* controller = current_device_call_controller;
+
+    if(controller == nullptr)
+    {
+        return;
+    }
+
+    if(success)
+    {
+        controller->write_successes.fetch_add(1, std::memory_order_relaxed);
+    }
+    else
+    {
+        controller->last_write_failure_ticks.store(std::chrono::steady_clock::now().time_since_epoch().count());
+        controller->write_failures.fetch_add(1);
     }
 }
 
@@ -2005,7 +2076,10 @@ void RGBController::UpdateZoneLEDs(int zone)
 {
     AccessMutex.lock_shared();
     DeviceMutex.lock();
-    DeviceUpdateZoneLEDs(zone);
+    {
+        DeviceCallScope scope(this);
+        DeviceUpdateZoneLEDs(zone);
+    }
     DeviceMutex.unlock();
     AccessMutex.unlock_shared();
 
@@ -2016,7 +2090,10 @@ void RGBController::UpdateSingleLED(int led)
 {
     AccessMutex.lock_shared();
     DeviceMutex.lock();
-    DeviceUpdateSingleLED(led);
+    {
+        DeviceCallScope scope(this);
+        DeviceUpdateSingleLED(led);
+    }
     DeviceMutex.unlock();
     AccessMutex.unlock_shared();
 
@@ -2034,7 +2111,10 @@ void RGBController::UpdateZoneMode(int zone)
 {
     AccessMutex.lock_shared();
     DeviceMutex.lock();
-    DeviceUpdateZoneMode(zone);
+    {
+        DeviceCallScope scope(this);
+        DeviceUpdateZoneMode(zone);
+    }
     DeviceMutex.unlock();
     AccessMutex.unlock_shared();
 
@@ -2045,7 +2125,10 @@ void RGBController::SaveMode()
 {
     AccessMutex.lock_shared();
     DeviceMutex.lock();
-    DeviceSaveMode();
+    {
+        DeviceCallScope scope(this);
+        DeviceSaveMode();
+    }
     DeviceMutex.unlock();
     AccessMutex.unlock_shared();
 
@@ -2054,6 +2137,12 @@ void RGBController::SaveMode()
 
 void RGBController::DeviceCallThreadFunction()
 {
+    /*-----------------------------------------------------*\
+    | Every device call on this thread belongs to this      |
+    | controller                                            |
+    \*-----------------------------------------------------*/
+    DeviceCallScope scope(this);
+
     CallFlag_UpdateLEDs = false;
     CallFlag_UpdateMode = false;
 

@@ -212,6 +212,7 @@ enum
     \*----------------------------------------------------------------------------------------------------------*/
     NET_PACKET_ID_NEXUS_COOLING_GET_STATUS          = 40000,/* Request cooling status, reply carries the payload*/
     NET_PACKET_ID_NEXUS_COOLING_SET_DUTIES          = 40001,/* Replace the commanded fan and pump duties        */
+    NET_PACKET_ID_NEXUS_WRITE_HEALTH                = 40002,/* Request bus write counters, reply carries them   */
 };
 
 std::string GetHostname();

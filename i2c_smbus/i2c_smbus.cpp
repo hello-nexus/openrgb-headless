@@ -11,6 +11,7 @@
 \*---------------------------------------------------------*/
 
 #include "i2c_smbus.h"
+#include "RGBController.h"
 #include <string.h>
 
 #ifdef WIN32
@@ -161,6 +162,11 @@ s32 i2c_smbus_interface::i2c_smbus_xfer_call(u8 addr, char read_write, u8 comman
 
     i2c_smbus_xfer_mutex.unlock();
 
+    if(read_write == I2C_SMBUS_WRITE)
+    {
+        RGBController::RecordWriteResult(i2c_ret >= 0);
+    }
+
     return(i2c_ret);
 }
 
@@ -171,6 +177,11 @@ s32 i2c_smbus_interface::i2c_xfer_call(u8 addr, char read_write, int* size, u8 *
     s32 i2c_ret = i2c_xfer(addr, read_write, size, data);
 
     i2c_smbus_xfer_mutex.unlock();
+
+    if(read_write == I2C_SMBUS_WRITE)
+    {
+        RGBController::RecordWriteResult(i2c_ret >= 0);
+    }
 
     return(i2c_ret);
 }

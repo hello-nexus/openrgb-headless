@@ -16,6 +16,8 @@
 #include <thread>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
+#include <limits>
 #include <mutex>
 #include <shared_mutex>
 #include "RGBControllerInterface.h"
@@ -49,6 +51,19 @@ public:
     \*-----------------------------------------------------*/
     bool                    GetHidden();
     void                    SetHidden(bool hidden);
+
+    /*-----------------------------------------------------*\
+    | Write health: SMBus/I2C write results counted against |
+    | the controller whose update call made them. Counters  |
+    | wrap at 2^32. The last failure time is                |
+    | time_point::min() until the first failure.            |
+    \*-----------------------------------------------------*/
+    uint32_t                GetWriteFailures();
+    uint32_t                GetWriteSuccesses();
+    std::chrono::steady_clock::time_point
+                            GetLastWriteFailureTime();
+
+    static void             RecordWriteResult(bool success);
 
     /*-----------------------------------------------------*\
     | Zone Functions                                        |
@@ -324,6 +339,14 @@ private:
     std::atomic<bool>       CallFlag_UpdateLEDs;
     std::atomic<bool>       CallFlag_UpdateMode;
     std::atomic<bool>       DeviceThreadRunning;
+
+    /*-----------------------------------------------------*\
+    | Write health counters                                 |
+    \*-----------------------------------------------------*/
+    std::atomic<uint32_t>   write_failures{0};
+    std::atomic<uint32_t>   write_successes{0};
+    std::atomic<std::chrono::steady_clock::rep>
+                            last_write_failure_ticks{(std::numeric_limits<std::chrono::steady_clock::rep>::min)()};
 
     /*-----------------------------------------------------*\
     | Update callback variables                             |

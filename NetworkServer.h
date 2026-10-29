@@ -296,6 +296,7 @@ private:
     NetPacketStatus                     ProcessRequest_SettingsManager_SaveSettings(NetworkClientInfo* client_info);
 
     NetPacketStatus                     ProcessRequest_NexusCooling(NetworkClientInfo* client_info, unsigned int packet_id, unsigned int data_size, unsigned char* data_ptr, unsigned int controller_id);
+    NetPacketStatus                     ProcessRequest_NexusWriteHealth(NetworkClientInfo* client_info, unsigned int controller_id);
 
     NetPacketStatus                     ProcessRequest_RGBController_AddSegment(NetworkClientInfo* client_info, unsigned int data_size, unsigned char* data_ptr, unsigned int controller_id);
     NetPacketStatus                     ProcessRequest_RGBController_ClearSegments(NetworkClientInfo* client_info, unsigned int data_size, unsigned char* data_ptr, unsigned int controller_id);
