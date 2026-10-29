@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include "i2c_smbus.h"
 #include "nvapi.h"
 
@@ -24,5 +25,10 @@ public:
 private:
     s32 i2c_smbus_xfer(u8 addr, char read_write, u8 command, int mode, i2c_smbus_data* data);
     s32 i2c_xfer(u8 addr, char read_write, int* size, u8* data);
+    void LogFailure(NV_STATUS ret, char read_write, u8 addr, int reg);
     NV_PHYSICAL_GPU_HANDLE handle;
+
+    unsigned int                            failure_count       = 0;
+    unsigned int                            failures_suppressed = 0;
+    std::chrono::steady_clock::time_point   last_failure_report;
 };

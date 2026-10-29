@@ -12,6 +12,7 @@
 #include <cstring>
 #include <chrono>
 #include "MSIGPUv2Controller.h"
+#include "LogManager.h"
 
 using namespace std::chrono_literals;
 
@@ -20,6 +21,8 @@ MSIGPUv2Controller::MSIGPUv2Controller(i2c_smbus_interface* bus, msi_gpu_dev_id 
     this->bus   = bus;
     this->dev   = dev;
     this->name  = dev_name;
+
+    LOG_WARNING("[MSI GPU v2] %s (%s) initial state: %s", name.c_str(), GetDeviceLocation().c_str(), ReadStateString().c_str());
 }
 
 MSIGPUv2Controller::~MSIGPUv2Controller()
@@ -84,6 +87,34 @@ void MSIGPUv2Controller::SetMode(unsigned char mode)
 void MSIGPUv2Controller::Save()
 {
     MSIGPURegisterWrite(MSI_GPU_V2_REG_SAVE, 0x00);
+}
+
+/*---------------------------------------------------------*\
+| Mode, brightness and R1/G1/B1 as the card reports them,   |
+| "err" for a register whose read failed                    |
+\*---------------------------------------------------------*/
+std::string MSIGPUv2Controller::ReadStateString()
+{
+    static const unsigned char regs[5] = { MSI_GPU_V2_REG_MODE, MSI_GPU_V2_REG_BRIGHTNESS, MSI_GPU_V2_REG_R1, MSI_GPU_V2_REG_G1, MSI_GPU_V2_REG_B1 };
+    char                       vals[5][5];
+
+    for(int idx = 0; idx < 5; idx++)
+    {
+        s32 val = bus->i2c_smbus_read_byte_data(dev, regs[idx]);
+
+        if(val < 0)
+        {
+            snprintf(vals[idx], sizeof(vals[idx]), "err");
+        }
+        else
+        {
+            snprintf(vals[idx], sizeof(vals[idx]), "0x%02X", val & 0xFF);
+        }
+    }
+
+    char buf[96];
+    snprintf(buf, sizeof(buf), "mode %s brightness %s rgb %s/%s/%s", vals[0], vals[1], vals[2], vals[3], vals[4]);
+    return(buf);
 }
 
 unsigned char MSIGPUv2Controller::MSIGPURegisterRead(unsigned char reg)

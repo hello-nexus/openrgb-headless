@@ -10,10 +10,54 @@
 \*---------------------------------------------------------*/
 
 #include "i2c_smbus_nvapi.h"
+#include "LogManager.h"
 
 i2c_smbus_nvapi::i2c_smbus_nvapi(NV_PHYSICAL_GPU_HANDLE handle)
 {
     this->handle = handle;
+}
+
+/*---------------------------------------------------------*\
+| Callers hold i2c_smbus_xfer_mutex, which also guards the  |
+| failure counters. The first failures are logged one by    |
+| one, later ones as a count at most once per interval.     |
+\*---------------------------------------------------------*/
+#define NVAPI_I2C_FAILURES_LOGGED_INDIVIDUALLY  5
+#define NVAPI_I2C_FAILURE_SUMMARY_INTERVAL      std::chrono::seconds(60)
+
+void i2c_smbus_nvapi::LogFailure(NV_STATUS ret, char read_write, u8 addr, int reg)
+{
+    const char* op = (read_write == I2C_SMBUS_WRITE) ? "write" : "read";
+    char        reg_str[8];
+
+    if(reg < 0)
+    {
+        snprintf(reg_str, sizeof(reg_str), "none");
+    }
+    else
+    {
+        snprintf(reg_str, sizeof(reg_str), "0x%02X", reg);
+    }
+
+    failure_count++;
+
+    if(failure_count <= NVAPI_I2C_FAILURES_LOGGED_INDIVIDUALLY)
+    {
+        LOG_WARNING("[%s] %s failed: NvAPI status %d, address 0x%02X, register %s", info.device_name, op, (int)ret, addr, reg_str);
+        last_failure_report = std::chrono::steady_clock::now();
+        return;
+    }
+
+    failures_suppressed++;
+
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+
+    if(now - last_failure_report >= NVAPI_I2C_FAILURE_SUMMARY_INTERVAL)
+    {
+        LOG_WARNING("[%s] %u more NvAPI I2C failures since last report (latest: %s status %d, address 0x%02X, register %s)", info.device_name, failures_suppressed, op, (int)ret, addr, reg_str);
+        failures_suppressed = 0;
+        last_failure_report = now;
+    }
 }
 
 s32 i2c_smbus_nvapi::i2c_smbus_xfer(u8 addr, char read_write, u8 command, int mode, i2c_smbus_data* data)
@@ -118,6 +162,11 @@ s32 i2c_smbus_nvapi::i2c_smbus_xfer(u8 addr, char read_write, u8 command, int mo
         }
     }
 
+    if(ret != 0)
+    {
+        LogFailure(ret, read_write, addr, command);
+    }
+
     return(ret);
 }
 
@@ -157,6 +206,11 @@ s32 i2c_smbus_nvapi::i2c_xfer(u8 addr, char read_write, int* size, u8* data)
 
         *size = i2c_data.size;
         memcpy(data, i2c_data.data, i2c_data.size);
+    }
+
+    if(ret != 0)
+    {
+        LogFailure(ret, read_write, addr, -1);
     }
 
     return(ret);

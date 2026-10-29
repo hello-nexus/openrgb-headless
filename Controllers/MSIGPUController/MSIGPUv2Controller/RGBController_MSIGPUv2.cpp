@@ -11,6 +11,7 @@
 
 #include <array>
 #include "RGBController_MSIGPUv2.h"
+#include "LogManager.h"
 
 static const unsigned char speed_values[3]      = { 0x04, 0x02, 0x01 };
 
@@ -448,6 +449,10 @@ void RGBController_MSIGPUv2::SetupZones()
 
 void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
 {
+    bool            wrote_rgb1          = false;
+    int             written_brightness  = -1;
+    unsigned char   written_mode;
+
     switch(current_mode.value)
     {
         case MSI_GPU_V2_MODE_RAINBOW:
@@ -526,6 +531,7 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
             controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_UNKNOWN, 0x00);
             controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_IDLE);
             controller->SetRGB1(RGBGetRValue(colors[0]), RGBGetGValue(colors[0]), RGBGetBValue(colors[0]));
+            wrote_rgb1 = true;
             break;
 
         case MSI_GPU_V2_MODE_TWISTING:
@@ -553,6 +559,7 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
 
     if(current_mode.flags & MODE_FLAG_HAS_BRIGHTNESS)
     {
+        written_brightness = (unsigned char)(MSI_GPU_V2_BRIGHTNESS_MULTI * modes[active_mode].brightness);
         controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_BRIGHTNESS, MSI_GPU_V2_BRIGHTNESS_MULTI * modes[active_mode].brightness);
         if(modes[active_mode].flags & MODE_FLAG_HAS_SPEED)
         {
@@ -570,11 +577,33 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
     && (current_mode.flags & MODE_FLAG_HAS_RANDOM_COLOR)
     && (current_mode.color_mode == MODE_COLORS_RANDOM))
     {
-        controller->SetMode(current_mode.value + 1);
+        written_mode = current_mode.value + 1;
     }
     else
     {
-        controller->SetMode(current_mode.value);
+        written_mode = current_mode.value;
+    }
+    controller->SetMode(written_mode);
+
+    /*---------------------------------------------------------*\
+    | Log the written values against a readback once per        |
+    | controller; Direct mode reaches here on every frame       |
+    \*---------------------------------------------------------*/
+    if(!first_apply_logged.exchange(true))
+    {
+        char brightness_str[8] = "-";
+        char rgb_str[16]       = "-";
+
+        if(written_brightness >= 0)
+        {
+            snprintf(brightness_str, sizeof(brightness_str), "0x%02X", written_brightness);
+        }
+        if(wrote_rgb1)
+        {
+            snprintf(rgb_str, sizeof(rgb_str), "0x%02X/0x%02X/0x%02X", RGBGetRValue(colors[0]), RGBGetGValue(colors[0]), RGBGetBValue(colors[0]));
+        }
+
+        LOG_WARNING("[MSI GPU v2] %s (%s) first apply (%s): wrote mode 0x%02X brightness %s rgb %s, read back %s", name.c_str(), location.c_str(), current_mode.name.c_str(), written_mode, brightness_str, rgb_str, controller->ReadStateString().c_str());
     }
 }
 

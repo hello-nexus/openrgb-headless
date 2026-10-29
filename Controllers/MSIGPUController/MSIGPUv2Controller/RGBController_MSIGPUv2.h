@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "pci_ids.h"
 #include "RGBController.h"
 #include "MSIGPUv2Controller.h"
@@ -33,6 +35,7 @@ public:
 private:
     MSIGPUv2Controller* controller;
     bool                rainbow_variants;
+    std::atomic<bool>   first_apply_logged{false};
 
     void       DeviceUpdateAll(const mode& current_mode);
 };

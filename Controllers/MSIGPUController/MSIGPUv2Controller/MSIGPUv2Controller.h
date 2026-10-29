@@ -92,6 +92,8 @@ public:
     void          SetMode(unsigned char mode);
     void          Save();
 
+    std::string   ReadStateString();
+
     unsigned char MSIGPURegisterRead(unsigned char reg);
     void          MSIGPURegisterWrite(unsigned char reg, unsigned char val);
     void          MSIGPUBlockWrite(unsigned char reg,unsigned char *val, unsigned char len);
