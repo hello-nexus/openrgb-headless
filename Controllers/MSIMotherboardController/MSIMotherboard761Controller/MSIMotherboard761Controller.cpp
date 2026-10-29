@@ -223,7 +223,7 @@ unsigned char initial_setup_array[] =
     0x09, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0x15, 0x78, //JARGB 3
     0x09, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0x15, 0x78, //JAF //Fans go here with the weird connector
     0x09, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0x95, 0x1E, //JPIPE1
-    0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0x1E, //JPIPE2 //95 for active zones 94 for inactive
+    0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0x1E, //JPIPE2
     0x09, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0x95, 0x1E, //JPIPE3
     0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0x1E, //JPIPE4
     0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0x1E, //JPIPE5
@@ -254,12 +254,15 @@ unsigned char * initializer_array()
 | driver does not expose (the board's own LEDs among them)  |
 | must keep what the board already has, so read the current |
 | setup back and copy those rows over the zeroed ones. Only |
-| the report id and size are checked for the whole read;    |
-| each row is copied only if it carries its row marker.     |
-| Boards with a JPIPE1 zone keep their JPIPE rows exactly   |
-| as configured, since earlier fixes switch some of those   |
-| off on purpose. Returns false when the read is unusable,  |
-| and the rows stay zeroed.                                 |
+| the report id and size are checked for the whole read.    |
+| A row is copied only when its mode byte is a real mode    |
+| (not off) and its byte 14 is in range; a board            |
+| with no software runs a firmware effect there. Boards     |
+| with a JPIPE1 zone are left exactly as before, since      |
+| earlier fixes switch some of their areas off on purpose.  |
+| Rows that follow the select-all row need that row kept    |
+| as well. Returns false when the read is unusable, and     |
+| the rows stay zeroed.                                     |
 \*---------------------------------------------------------*/
 static bool preserve_unexposed_rows
     (
@@ -270,7 +273,8 @@ static bool preserve_unexposed_rows
     const std::string &             name
     )
 {
-    /*-----------------------------------------------------*    | The buffer must hold the device's largest feature     |
+    /*-----------------------------------------------------*\
+    | The buffer must hold the device's largest feature     |
     | report or the read fails                              |
     \*-----------------------------------------------------*/
     unsigned char current[1024];
@@ -295,35 +299,48 @@ static bool preserve_unexposed_rows
         headers.append(hex);
     }
 
-    for(int i = 4; i < 17; i++)
+    bool follows_select_all = false;
+
+    if(pipe1_leds == 0)
     {
-        bool is_jpipe = (setup_map[i] >= MSI_ZONE_J_PIPE_1) && (setup_map[i] <= MSI_ZONE_J_PIPE_5);
-
-        if(std::find(supported_zones->begin(), supported_zones->end(), setup_map[i]) != supported_zones->end())
+        for(int i = 4; i < 17; i++)
         {
-            continue;
+            unsigned char mode = current[ARRAY_ROW_RAW(i, 1)];
+
+            if(std::find(supported_zones->begin(), supported_zones->end(), setup_map[i]) != supported_zones->end())
+            {
+                continue;
+            }
+
+            if((mode == 0) || (mode > 0x0A) || (current[ARRAY_ROW_RAW(i, 14)] > 3))
+            {
+                continue;
+            }
+
+            memcpy(&conf_arr[ARRAY_ROW_RAW(i, 1)], &current[ARRAY_ROW_RAW(i, 1)], 16);
+
+            snprintf(hex, sizeof(hex), " %i:%02X", i, mode);
+            kept.append(hex);
+
+            if(current[ARRAY_ROW_RAW(i, 15)] & 0x80)
+            {
+                follows_select_all = true;
+            }
         }
 
-        if((pipe1_leds > 0) && is_jpipe)
+        /*-------------------------------------------------*\
+        | Copied rows that follow select-all take its       |
+        | settings, so keep the board's select-all row too  |
+        \*-------------------------------------------------*/
+        if(follows_select_all && (current[ARRAY_ROW_RAW(17, 1)] >= 1) && (current[ARRAY_ROW_RAW(17, 1)] <= 0x0A))
         {
-            continue;
-        }
-
-        if(current[ARRAY_ROW_RAW(i, 1)] != 0x09)
-        {
-            continue;
-        }
-
-        memcpy(&conf_arr[ARRAY_ROW_RAW(i, 1)], &current[ARRAY_ROW_RAW(i, 1)], 16);
-
-        if(current[ARRAY_ROW_RAW(i, 15)] & 0x01)
-        {
-            kept.append(" ").append(std::to_string(i));
+            memcpy(&conf_arr[ARRAY_ROW_RAW(17, 1)], &current[ARRAY_ROW_RAW(17, 1)], 16);
+            kept.append(" select-all");
         }
     }
 
     LOG_WARNING("[%s] setup readback %i bytes, row headers:%s", name.c_str(), res, headers.c_str());
-    LOG_WARNING("[%s] kept board setup for unexposed areas, active rows:%s", name.c_str(), kept.empty() ? " none" : kept.c_str());
+    LOG_WARNING("[%s] kept board setup for unexposed areas, rows (index:mode):%s", name.c_str(), kept.empty() ? " none" : kept.c_str());
     return true;
 }
 
