@@ -435,7 +435,29 @@ void RazerController::SetLEDs(RGBColor* colors)
     /*---------------------------------------------------------*\
     | Set custom mode to apply frame                            |
     \*---------------------------------------------------------*/
-    razer_set_mode_custom();
+    if(dev_pid == RAZER_BASILISK_V3_PID)
+    {
+        /*-----------------------------------------------------*\
+        | The vendor app selects the custom effect once per     |
+        | mode change, with a short report, and never repeats   |
+        | it. Sending it every frame makes the scroll wheel     |
+        | fire on its own.                                      |
+        \*-----------------------------------------------------*/
+        if(!custom_frame_applied)
+        {
+            razer_report report             = razer_create_report(0x0F, 0x02, 0x06);
+
+            report.arguments[2]             = 0x08;
+
+            razer_usb_send(&report);
+
+            custom_frame_applied            = true;
+        }
+    }
+    else
+    {
+        razer_set_mode_custom();
+    }
 
     /*---------------------------------------------------------*\
     | Delete the output array                                   |
