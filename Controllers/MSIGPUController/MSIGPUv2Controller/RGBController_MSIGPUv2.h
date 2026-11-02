@@ -37,5 +37,12 @@ private:
     bool                rainbow_variants;
     std::atomic<bool>   first_apply_logged{false};
 
-    void       DeviceUpdateAll(const mode& current_mode);
+    /*-----------------------------------------------------*    | State of the last full Direct sequence, so later      |
+    | Direct frames can write only the changed colors       |
+    \*-----------------------------------------------------*/
+    bool                direct_primed       = false;
+    unsigned char       direct_brightness   = 0;
+    unsigned char       direct_rgb[3]       = { 0, 0, 0 };
+
+    void       DeviceUpdateAll(const mode& current_mode, bool allow_color_only);
 };
