@@ -194,6 +194,8 @@ public:
     \*-----------------------------------------------------*/
     void                    Shutdown();
 
+    void                    WaitForDeviceUpdate();
+
     void                    UpdateLEDs();
     void                    UpdateZoneLEDs(int zone);
     void                    UpdateSingleLED(int led);
@@ -347,6 +349,15 @@ private:
     std::atomic<uint32_t>   write_successes{0};
     std::atomic<std::chrono::steady_clock::rep>
                             last_write_failure_ticks{(std::numeric_limits<std::chrono::steady_clock::rep>::min)()};
+
+    /*-----------------------------------------------------*\
+    | Device update wait variables                          |
+    | WaitForDeviceUpdate() blocks until the device thread  |
+    | has written every queued update to the device         |
+    \*-----------------------------------------------------*/
+    std::mutex              DeviceCallMutex;
+    std::condition_variable DeviceCallDone;
+    bool                    DeviceCallActive;
 
     /*-----------------------------------------------------*\
     | Update callback variables                             |
