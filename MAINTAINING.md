@@ -120,8 +120,9 @@ When upstream merges touch `OpenRGB.pro`:
 1. Added `DetectionManager::TagDetector(result, name)`, which sets
    `detector_name` on every controller a detector returned. `name` is taken by
    value.
-2. Wrapped the 7 detector-invocation sites (I2C device, I2C DIMM, I2C PCI, HID
-   safe-mode, `RunHIDDetector`, `RunHIDWrappedDetector`, miscellaneous device)
+2. Wrapped the 8 detector-invocation sites (I2C device, I2C DIMM, I2C PCI, HID
+   safe-mode, `RunHIDDetector`, `RunHIDWrappedDetector`, miscellaneous device,
+   USB serial)
    as `TagDetector(<upstream's detector call>, <that site's own name>)`.
 3. `RegisterRGBController` falls back to the shared `detection_string` when a
    controller has no `detector_name` (detectors that register from inside their
