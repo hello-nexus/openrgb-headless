@@ -12,7 +12,6 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 
 #include "pci_ids.h"
 #include "RGBController.h"
@@ -45,7 +44,6 @@ private:
     bool                direct_primed       = false;
     unsigned char       direct_brightness   = 0;
     unsigned char       direct_rgb[3]       = { 0, 0, 0 };
-    std::chrono::steady_clock::time_point direct_mode_time;
 
     void       DeviceUpdateAll(const mode& current_mode, bool allow_color_only);
 };
