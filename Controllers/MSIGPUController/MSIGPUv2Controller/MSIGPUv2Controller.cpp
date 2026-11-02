@@ -122,14 +122,33 @@ unsigned char MSIGPUv2Controller::MSIGPURegisterRead(unsigned char reg)
     return bus->i2c_smbus_read_byte_data(dev, reg);
 }
 
-void MSIGPUv2Controller::MSIGPURegisterWrite(unsigned char reg, unsigned char val)
+bool MSIGPUv2Controller::MSIGPURegisterWrite(unsigned char reg, unsigned char val)
 {
-    bus->i2c_smbus_write_byte_data(dev, reg, val);
+    s32 result = bus->i2c_smbus_write_byte_data(dev, reg, val);
     std::this_thread::sleep_for(20ms);
+    if(result < 0)
+    {
+        write_failures++;
+    }
+    return(result >= 0);
 }
 
-void MSIGPUv2Controller::MSIGPUBlockWrite(unsigned char reg, unsigned char *val, unsigned char len)
+bool MSIGPUv2Controller::MSIGPUBlockWrite(unsigned char reg, unsigned char *val, unsigned char len)
 {
-    bus->i2c_smbus_interface::i2c_smbus_write_i2c_block_data(dev, reg, len, val);
+    s32 result = bus->i2c_smbus_interface::i2c_smbus_write_i2c_block_data(dev, reg, len, val);
     std::this_thread::sleep_for(20ms);
+    if(result < 0)
+    {
+        write_failures++;
+    }
+    return(result >= 0);
+}
+
+/*---------------------------------------------------------\
+| Count of failed writes since construction; a caller       |
+| compares it before and after a sequence                   |
+\*---------------------------------------------------------*/
+unsigned int MSIGPUv2Controller::GetWriteFailures()
+{
+    return(write_failures);
 }

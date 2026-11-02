@@ -95,11 +95,13 @@ public:
     std::string   ReadStateString();
 
     unsigned char MSIGPURegisterRead(unsigned char reg);
-    void          MSIGPURegisterWrite(unsigned char reg, unsigned char val);
-    void          MSIGPUBlockWrite(unsigned char reg,unsigned char *val, unsigned char len);
+    bool          MSIGPURegisterWrite(unsigned char reg, unsigned char val);
+    bool          MSIGPUBlockWrite(unsigned char reg,unsigned char *val, unsigned char len);
+    unsigned int  GetWriteFailures();
 
 private:
     i2c_smbus_interface *   bus;
     msi_gpu_dev_id          dev;
     std::string             name;
+    unsigned int            write_failures = 0;
 };

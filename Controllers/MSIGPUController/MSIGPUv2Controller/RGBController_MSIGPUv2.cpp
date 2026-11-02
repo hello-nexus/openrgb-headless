@@ -452,8 +452,10 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
     bool            wrote_rgb1          = false;
     int             written_brightness  = -1;
     unsigned char   written_mode;
+    unsigned int    failures_before     = controller->GetWriteFailures();
 
-    /*---------------------------------------------------------*    | Direct frames arrive continuously. Once the card is in    |
+    /*---------------------------------------------------------*\
+    | Direct frames arrive continuously. Once the card is in    |
     | static mode at this brightness, rewrite only the R/G/B    |
     | registers that changed: the idle/mode flip and the        |
     | brightness write of the full sequence must not run per    |
@@ -471,8 +473,31 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
         {
             if(rgb[idx] != direct_rgb[idx])
             {
-                controller->MSIGPURegisterWrite(regs[idx], rgb[idx]);
-                direct_rgb[idx] = rgb[idx];
+                if(controller->MSIGPURegisterWrite(regs[idx], rgb[idx]))
+                {
+                    direct_rgb[idx] = rgb[idx];
+                }
+                else
+                {
+                    direct_primed = false;
+                    return;
+                }
+            }
+        }
+
+        /*-----------------------------------------------------*\
+        | A readback cannot detect a card that reset itself on  |
+        | this hardware, so periodically restate the mode alone |
+        \*-----------------------------------------------------*/
+        if(std::chrono::steady_clock::now() - direct_mode_time >= std::chrono::seconds(5))
+        {
+            if(controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_STATIC))
+            {
+                direct_mode_time = std::chrono::steady_clock::now();
+            }
+            else
+            {
+                direct_primed = false;
             }
         }
         return;
@@ -611,6 +636,19 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
         written_mode = current_mode.value;
     }
     controller->SetMode(written_mode);
+
+    if(current_mode.value == MSI_GPU_V2_MODE_STATIC
+    && written_mode == MSI_GPU_V2_MODE_STATIC
+    && written_brightness >= 0
+    && controller->GetWriteFailures() == failures_before)
+    {
+        direct_primed       = true;
+        direct_brightness   = (unsigned char)written_brightness;
+        direct_rgb[0]       = RGBGetRValue(colors[0]);
+        direct_rgb[1]       = RGBGetGValue(colors[0]);
+        direct_rgb[2]       = RGBGetBValue(colors[0]);
+        direct_mode_time    = std::chrono::steady_clock::now();
+    }
 
     /*---------------------------------------------------------*\
     | Log the written values against a readback once per        |
