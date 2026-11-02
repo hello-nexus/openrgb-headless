@@ -447,11 +447,38 @@ void RGBController_MSIGPUv2::SetupZones()
 
 }
 
-void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
+void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allow_color_only)
 {
     bool            wrote_rgb1          = false;
     int             written_brightness  = -1;
     unsigned char   written_mode;
+
+    /*---------------------------------------------------------*    | Direct frames arrive continuously. Once the card is in    |
+    | static mode at this brightness, rewrite only the R/G/B    |
+    | registers that changed: the idle/mode flip and the        |
+    | brightness write of the full sequence must not run per    |
+    | frame                                                     |
+    \*---------------------------------------------------------*/
+    if(allow_color_only
+    && current_mode.value == MSI_GPU_V2_MODE_STATIC
+    && direct_primed
+    && direct_brightness == (unsigned char)(MSI_GPU_V2_BRIGHTNESS_MULTI * modes[active_mode].brightness))
+    {
+        const unsigned char rgb[3] = { (unsigned char)RGBGetRValue(colors[0]), (unsigned char)RGBGetGValue(colors[0]), (unsigned char)RGBGetBValue(colors[0]) };
+        static const unsigned char regs[3] = { MSI_GPU_V2_REG_R1, MSI_GPU_V2_REG_G1, MSI_GPU_V2_REG_B1 };
+
+        for(int idx = 0; idx < 3; idx++)
+        {
+            if(rgb[idx] != direct_rgb[idx])
+            {
+                controller->MSIGPURegisterWrite(regs[idx], rgb[idx]);
+                direct_rgb[idx] = rgb[idx];
+            }
+        }
+        return;
+    }
+
+    direct_primed = false;
 
     switch(current_mode.value)
     {
@@ -610,12 +637,12 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
 
 void RGBController_MSIGPUv2::DeviceUpdateLEDs()
 {
-    DeviceUpdateAll(modes[active_mode]);
+    DeviceUpdateAll(modes[active_mode], true);
 }
 
 void RGBController_MSIGPUv2::DeviceUpdateZoneLEDs(int /*zone*/)
 {
-    DeviceUpdateAll(modes[active_mode]);
+    DeviceUpdateAll(modes[active_mode], true);
 }
 
 
@@ -628,7 +655,7 @@ void RGBController_MSIGPUv2::DeviceUpdateSingleLED(int /*led*/)
 
 void RGBController_MSIGPUv2::DeviceUpdateMode()
 {
-    DeviceUpdateAll(modes[active_mode]);
+    DeviceUpdateAll(modes[active_mode], false);
 }
 
 void RGBController_MSIGPUv2::DeviceSaveMode()
