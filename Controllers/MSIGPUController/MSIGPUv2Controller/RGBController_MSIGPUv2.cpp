@@ -29,6 +29,8 @@ static const unsigned char speed_values[3]      = { 0x04, 0x02, 0x01 };
 RGBController_MSIGPUv2::RGBController_MSIGPUv2(MSIGPUv2Controller * controller_ptr, int msi_gpu_id)
 {
     controller                      = controller_ptr;
+    direct_ready                    = false;
+    direct_color                    = 0;
 
     name                            = controller->GetDeviceName();
     vendor                          = "MSI";
@@ -587,7 +589,7 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
 
     /*---------------------------------------------------------*\
     | Log the written values against a readback once per        |
-    | controller; Direct mode reaches here on every frame       |
+    | controller; every mode or brightness change comes here    |
     \*---------------------------------------------------------*/
     if(!first_apply_logged.exchange(true))
     {
@@ -605,17 +607,74 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
 
         LOG_WARNING("[MSI GPU v2] %s (%s) first apply (%s): wrote mode 0x%02X brightness %s rgb %s, read back %s", name.c_str(), location.c_str(), current_mode.name.c_str(), written_mode, brightness_str, rgb_str, controller->ReadStateString().c_str());
     }
+
+    /*---------------------------------------------------------*\
+    | Once the card is in Direct mode, a color update can skip  |
+    | the unknown register and the brightness                   |
+    \*---------------------------------------------------------*/
+    direct_ready = (current_mode.value == MSI_GPU_V2_MODE_STATIC);
+    direct_color = colors[0];
 }
 
+void RGBController_MSIGPUv2::UpdateDirectColor(RGBColor color)
+{
+    if(color == direct_color)
+    {
+        return;
+    }
+
+    /*---------------------------------------------------------*\
+    | Color registers written while the card is in static mode  |
+    | do not show (seen on an RTX 4090 Gaming X Slim), so the   |
+    | card goes to idle mode for the write and back to static   |
+    | mode after it                                             |
+    \*---------------------------------------------------------*/
+    controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_IDLE);
+
+    if(RGBGetRValue(color) != RGBGetRValue(direct_color))
+    {
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_R1, RGBGetRValue(color));
+    }
+
+    if(RGBGetGValue(color) != RGBGetGValue(direct_color))
+    {
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_G1, RGBGetGValue(color));
+    }
+
+    if(RGBGetBValue(color) != RGBGetBValue(direct_color))
+    {
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_B1, RGBGetBValue(color));
+    }
+
+    controller->SetMode(MSI_GPU_V2_MODE_STATIC);
+
+    direct_color = color;
+}
 
 void RGBController_MSIGPUv2::DeviceUpdateLEDs()
 {
-    DeviceUpdateAll(modes[active_mode]);
+    /*---------------------------------------------------------*\
+    | The full sequence is seven register writes, each followed |
+    | by a 20 ms wait, too slow for a client streaming colors   |
+    | in Direct mode. After the first update, a color change    |
+    | writes only idle mode, the color registers that changed   |
+    | and static mode again; an unchanged color writes nothing. |
+    | A mode or brightness change still goes through the full   |
+    | sequence                                                  |
+    \*---------------------------------------------------------*/
+    if(direct_ready && (modes[active_mode].value == MSI_GPU_V2_MODE_STATIC))
+    {
+        UpdateDirectColor(colors[0]);
+    }
+    else
+    {
+        DeviceUpdateAll(modes[active_mode]);
+    }
 }
 
 void RGBController_MSIGPUv2::DeviceUpdateZoneLEDs(int /*zone*/)
 {
-    DeviceUpdateAll(modes[active_mode]);
+    DeviceUpdateLEDs();
 }
 
 
