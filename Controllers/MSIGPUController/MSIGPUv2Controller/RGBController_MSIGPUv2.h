@@ -36,6 +36,9 @@ private:
     MSIGPUv2Controller* controller;
     bool                rainbow_variants;
     std::atomic<bool>   first_apply_logged{false};
+    bool                direct_ready;
+    RGBColor            direct_color;
 
     void       DeviceUpdateAll(const mode& current_mode);
+    void       UpdateDirectColor(RGBColor color);
 };
