@@ -457,6 +457,7 @@
 #define COLORFUL_IGAME_RTX_4090_ADVANCED_OCV2                   0x1401
 #define COLORFUL_IGAME_RTX_5060_ULTRAW_OC                       0x1500
 #define COLORFUL_IGAME_RTX_5060_ULTRAW_OC_2                     0x1501
+#define COLORFUL_IGAME_RTX_5060_ULTRAW_DUO_OC                   0x1531
 #define COLORFUL_IGAME_RTX_5060TI_ULTRAW_DUO_OC_2               0x1530
 #define COLORFUL_IGAME_RTX_5060TI_ULTRAW_DUO_OC                 0x1531
 #define COLORFUL_IGAME_RTX_5070_ULTRAW_OCV                      0x1500
@@ -580,6 +581,8 @@
 #define GAINWARD_RTX_4070_GHOST_SUB_DEV                         0xF303
 #define GAINWARD_RTX_4080_PHANTOM_GS_SUB_DEV                    0xF297
 #define GAINWARD_RTX_4090_PHANTOM_SUB_DEV                       0xF297
+#define GAINWARD_RTX_5070TI_PHOENIX                             0xF323
+#define GAINWARD_RTX_5070TI_PHOENIX_S                           0xF333
 #define GAINWARD_RTX_5080_PHOENIX_SUB_DEV                       0xF323
 
 /*-----------------------------------------------------*\
@@ -825,6 +828,7 @@
 #define MSI_RTX3060TI_SUPER_3X_OC_SUB_DEV                       0x505A
 #define MSI_RTX3060TI_GAMING_X_TRIO_8G_SUB_DEV                  0x5058
 #define MSI_RTX3070_GAMING_TRIO_SUB_DEV                         0x3904
+#define MSI_RTX3070_GAMING_TRIO_PLUS_SUB_DEV                    0x3904
 #define MSI_RTX3070_GAMING_X_TRIO_SUB_DEV                       0x3903
 #define MSI_RTX3080_GAMING_Z_TRIO_SUB_DEV                       0x389B
 #define MSI_RTX3080_12G_GAMING_Z_TRIO_SUB_DEV                   0x389B
