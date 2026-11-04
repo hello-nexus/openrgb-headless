@@ -257,6 +257,24 @@ void RGBController_MSIMotherboard761::SetupZones()
         }
     }
 
+    /*-----------------------------------------------------*\
+    | Diagnostics, at error level so it reaches the log     |
+    | file under Nexus's --loglevel error                   |
+    \*-----------------------------------------------------*/
+    std::string diag_zones;
+    char        diag_zone[128];
+
+    for(std::size_t zone_idx = 0; zone_idx < zones.size(); zone_idx++)
+    {
+        snprintf(diag_zone, sizeof(diag_zone), "%s%s count %u (min %u max %u) flags 0x%X", (zone_idx == 0) ? "" : "; ",
+                 zones[zone_idx].name.c_str(), zones[zone_idx].leds_count, zones[zone_idx].leds_min,
+                 zones[zone_idx].leds_max, zones[zone_idx].flags);
+        diag_zones.append(diag_zone);
+    }
+
+    LOG_ERROR("[msi761-diag] zones %s, %u LEDs: %s", first_run ? "created" : "reconfigured",
+              (unsigned int)leds.size(), diag_zones.c_str());
+
     controller->SendConfiguration();
 
     SetupColors();

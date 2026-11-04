@@ -14,6 +14,8 @@
 \*---------------------------------------------------------*/
 
 #include <algorithm>
+#include <mutex>
+#include <string>
 #include <vector>
 #include "LogManager.h"
 #include "MSIMotherboard761Controller.h"
@@ -219,6 +221,100 @@ int get_zone_setup_index(MSI_ZONE index)
     return -1;
 }
 
+/*---------------------------------------------------------*\
+| Diagnostics. Every line starts with [msi761-diag] and is  |
+| logged at error level, the only level Nexus's             |
+| --loglevel error writes to the daemon's log file.         |
+\*---------------------------------------------------------*/
+static const char * const kDiagRowNames[18] =
+{
+    "JARGB1", "JARGB2", "JARGB3", "JAF", "JPIPE1", "JPIPE2", "JPIPE3", "JPIPE4", "JPIPE5",
+    "JRGB1", "JRGB2", "ONBOARD0", "ONBOARD1", "ONBOARD2", "ONBOARD3", "ONBOARD4", "ONBOARD5",
+    "SELECTALL",
+};
+
+static const char * const kDiagHeaderNames[5] = { "JAF", "JARGB1", "JARGB2", "JARGB3", "JPIPE1" };
+
+static const unsigned int               kDiagSetupCap = 50;
+static const std::chrono::seconds       kDiagSummaryWindow(5);
+
+static const char * DiagRowName(int row)
+{
+    return((row >= 0) && (row < 18)) ? kDiagRowNames[row] : "extra";
+}
+
+static std::string DiagHex(const unsigned char * buf, std::size_t len)
+{
+    std::string out;
+    char        hex[4];
+
+    for(std::size_t i = 0; i < len; i++)
+    {
+        snprintf(hex, sizeof(hex), (i == 0) ? "%02X" : " %02X", buf[i]);
+        out.append(hex);
+    }
+
+    return out;
+}
+
+/*---------------------------------------------------------*\
+| Logs a setup report that was sent: all rows the first     |
+| time, then only the rows that changed. A send is skipped  |
+| when its bytes and result match the last logged one, and  |
+| at most kDiagSetupCap sends are logged per daemon run.    |
+| SendConfiguration can run on the network thread while     |
+| Update runs on the update thread, hence the lock.         |
+\*---------------------------------------------------------*/
+static void DiagSetupSent(const char * site, const unsigned char * buf, int result)
+{
+    static std::mutex                   lock;
+    static std::vector<unsigned char>   last;
+    static int                          last_result = 0;
+    static unsigned int                 logged      = 0;
+
+    std::lock_guard<std::mutex> guard(lock);
+
+    bool first = (last.size() != SETUP_ARRAY_SIZE);
+
+    if(logged >= kDiagSetupCap)
+    {
+        return;
+    }
+
+    if(!first && (result == last_result) && (memcmp(last.data(), buf, SETUP_ARRAY_SIZE) == 0))
+    {
+        return;
+    }
+
+    std::string rows;
+    char        label[32];
+
+    for(int row = 0; row < 18; row++)
+    {
+        const unsigned char * bytes = &buf[ARRAY_ROW_RAW(row, 1)];
+
+        if(!first && (memcmp(&last[ARRAY_ROW_RAW(row, 1)], bytes, 16) == 0))
+        {
+            continue;
+        }
+
+        snprintf(label, sizeof(label), "; row %02i %s ", row, DiagRowName(row));
+        rows.append(label).append(DiagHex(bytes, 16));
+    }
+
+    logged++;
+    LOG_ERROR("[msi761-diag] setup send %u (%s) result %i, %s%s", logged, site, result,
+              first ? "all rows" : "changed rows", rows.empty() ? ": none" : rows.c_str());
+
+    if(logged == kDiagSetupCap)
+    {
+        LOG_ERROR("[msi761-diag] setup send log cap of %u reached, later sends are not logged", kDiagSetupCap);
+    }
+
+    last.assign(buf, buf + SETUP_ARRAY_SIZE);
+    last_result = result;
+}
+
 // Copying from signal plugin
 // DO NOT MODIFY THIS ARRAY DIRECTLY, MAKE COPY
 unsigned char initial_setup_array[] =
@@ -288,6 +384,26 @@ static bool preserve_unexposed_rows
     current[0] = initial_setup_array[0];
 
     int res = hid_get_feature_report(dev, current, sizeof(current));
+
+    /*-----------------------------------------------------*\
+    | Diagnostics: every byte read, in 16-byte rows after   |
+    | the report id, once per daemon run                    |
+    \*-----------------------------------------------------*/
+    static bool diag_readback_logged = false;
+
+    if(!diag_readback_logged)
+    {
+        diag_readback_logged = true;
+        LOG_ERROR("[msi761-diag] setup readback result %i, report id %02X", res, current[0]);
+
+        for(int row = 0; (row * 16 + 1) < res; row++)
+        {
+            int start = row * 16 + 1;
+
+            LOG_ERROR("[msi761-diag] readback row %02i %s %s", row, DiagRowName(row),
+                      DiagHex(&current[start], (std::size_t)std::min(16, res - start)).c_str());
+        }
+    }
 
     if((res < SETUP_ARRAY_SIZE) || (current[0] != initial_setup_array[0]))
     {
@@ -373,6 +489,7 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
 
     board_dirty                                     = false;
     last_board_sent                                 = std::chrono::steady_clock::time_point();
+    diag_window_start                               = std::chrono::steady_clock::now();
     memset(board_colors, 0, sizeof(board_colors));
     memset(board_color_set, 0, sizeof(board_color_set));
     memset(board_claimed, 0, sizeof(board_claimed));
@@ -480,6 +597,7 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
             \*---------------------------------------------*/
             int res = hid_send_feature_report(dev, conf_arr, SETUP_ARRAY_SIZE);
             LOG_INFO("Sending configuration resulted in %i\n", res);
+            DiagSetupSent("init", conf_arr, res);
 
             data                        = new FeaturePacket_761;
 
@@ -507,6 +625,55 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
             init_packet(&data->jargb3);
             init_packet(&data->jpipe1);
             data->jpipe1.packet.hdr2 = numof_pipe1_leds;
+
+            /*---------------------------------------------*\
+            | Diagnostics: which config matched, and the    |
+            | setup row and report header of each zone      |
+            \*---------------------------------------------*/
+            std::string diag_zones;
+            char        diag_zone[64];
+
+            for(std::size_t i = 0; i < supported_zones->size(); i++)
+            {
+                MSI_ZONE                        zone    = (*supported_zones)[i];
+                const FeaturePacket_PerLED_761* packet  = nullptr;
+
+                switch(zone)
+                {
+                    case MSI_ZONE_JAF:      packet = &data->jaf.packet;     break;
+                    case MSI_ZONE_JARGB_1:  packet = &data->jargb1.packet;  break;
+                    case MSI_ZONE_JARGB_2:  packet = &data->jargb2.packet;  break;
+                    case MSI_ZONE_JARGB_3:  packet = &data->jargb3.packet;  break;
+                    case MSI_ZONE_J_PIPE_1: packet = &data->jpipe1.packet;  break;
+                    default:                                                break;
+                }
+
+                int row = get_zone_setup_index(zone);
+
+                if(packet != nullptr)
+                {
+                    snprintf(diag_zone, sizeof(diag_zone), "%s%s row %i hdr %02X/%02X", (i == 0) ? "" : ", ",
+                             DiagRowName(row), row, packet->hdr0, packet->hdr1);
+                }
+                else
+                {
+                    snprintf(diag_zone, sizeof(diag_zone), "%s%s row %i", (i == 0) ? "" : ", ", DiagRowName(row), row);
+                }
+
+                diag_zones.append(diag_zone);
+            }
+
+            for(std::size_t i = 0; i < board_zones.size(); i++)
+            {
+                int row = get_zone_setup_index(board_zones[i]);
+
+                snprintf(diag_zone, sizeof(diag_zone), ", board area %s row %i", DiagRowName(row), row);
+                diag_zones.append(diag_zone);
+            }
+
+            LOG_ERROR("[msi761-diag] board '%s' (HID '%s') matched config %u of %u, JPIPE1 LEDs %d, zones: %s",
+                      board_config->name->c_str(), name.c_str(), (unsigned int)(board_config - board_configs),
+                      (unsigned int)(NUM_CONFS), numof_pipe1_leds, diag_zones.c_str());
         }
 
         /*-------------------------------------------------*\
@@ -654,7 +821,11 @@ bool MSIMotherboard761Controller::Update
             continue;
         }
 
-        if(hid_send_feature_report(dev, GET_CHAR_PTR_REF(packet->packet), sizeof(FeaturePacket_PerLED_761)) < 0)
+        int result = hid_send_feature_report(dev, GET_CHAR_PTR_REF(packet->packet), sizeof(FeaturePacket_PerLED_761));
+
+        DiagHeaderSent(i, packet->packet, result);
+
+        if(result < 0)
         {
             flag = false;
         }
@@ -665,7 +836,80 @@ bool MSIMotherboard761Controller::Update
         }
     }
 
+    DiagHeaderSummary(now);
+
     return flag;
+}
+
+/*---------------------------------------------------------*\
+| Diagnostics: a header's first report in full (header      |
+| bytes and the first three LEDs), then a summary of all    |
+| headers every kDiagSummaryWindow                          |
+\*---------------------------------------------------------*/
+void MSIMotherboard761Controller::DiagHeaderSent
+    (
+    unsigned int                    index,
+    const FeaturePacket_PerLED_761& packet,
+    int                             result
+    )
+{
+    DiagHeader& header = diag_headers[index];
+
+    header.sends++;
+    header.last_result = result;
+
+    if(result < 0)
+    {
+        header.failures++;
+    }
+
+    if(!header.first_logged)
+    {
+        header.first_logged = true;
+
+        LOG_ERROR("[msi761-diag] header %s first report result %i, %u bytes, head %s (id fixed hdr0 hdr1 fixed fixed count), count %u, first LEDs %s",
+                  kDiagHeaderNames[index], result, (unsigned int)sizeof(FeaturePacket_PerLED_761),
+                  DiagHex((const unsigned char *)&packet, 7).c_str(), (unsigned int)packet.hdr2,
+                  DiagHex(packet.colors, 9).c_str());
+    }
+}
+
+void MSIMotherboard761Controller::DiagHeaderSummary
+    (
+    std::chrono::steady_clock::time_point now
+    )
+{
+    if((now - diag_window_start) < kDiagSummaryWindow)
+    {
+        return;
+    }
+
+    FeaturePacket_Zone_761* packets[] = { &data->jaf, &data->jargb1, &data->jargb2, &data->jargb3, &data->jpipe1 };
+    std::string             summary;
+    char                    part[160];
+
+    for(unsigned int i = 0; i < 5; i++)
+    {
+        if((packets[i]->zone == MSI_ZONE_J_PIPE_1) && (numof_pipe1_leds == 0))
+        {
+            continue;
+        }
+
+        const FeaturePacket_PerLED_761& packet = packets[i]->packet;
+
+        snprintf(part, sizeof(part), "%s%s sent %u failed %u last %i count %u LEDs %s", summary.empty() ? "" : "; ",
+                 kDiagHeaderNames[i], diag_headers[i].sends, diag_headers[i].failures, diag_headers[i].last_result,
+                 (unsigned int)packet.hdr2, DiagHex(packet.colors, 9).c_str());
+        summary.append(part);
+
+        diag_headers[i].sends       = 0;
+        diag_headers[i].failures    = 0;
+    }
+
+    LOG_ERROR("[msi761-diag] headers over %.1f s: %s",
+              std::chrono::duration<double>(now - diag_window_start).count(), summary.c_str());
+
+    diag_window_start = now;
 }
 
 void MSIMotherboard761Controller::SetZoneColor
@@ -916,7 +1160,11 @@ void MSIMotherboard761Controller::SendConfiguration()
     /*-----------------------------------------------------*\
     | Stays dirty on failure so the next update tries again |
     \*-----------------------------------------------------*/
-    if(hid_send_feature_report(dev, setup_data, SETUP_ARRAY_SIZE) < 0)
+    int result = hid_send_feature_report(dev, setup_data, SETUP_ARRAY_SIZE);
+
+    DiagSetupSent("zone config", setup_data, result);
+
+    if(result < 0)
     {
         LOG_ERROR("[%s]: failed to send configuration", name.c_str());
         return;
@@ -1049,7 +1297,11 @@ void MSIMotherboard761Controller::SendBoardRows
     /*-----------------------------------------------------*\
     | Stays dirty on failure so a later update tries again  |
     \*-----------------------------------------------------*/
-    if(hid_send_feature_report(dev, setup_data, SETUP_ARRAY_SIZE) < 0)
+    int result = hid_send_feature_report(dev, setup_data, SETUP_ARRAY_SIZE);
+
+    DiagSetupSent("board rows", setup_data, result);
+
+    if(result < 0)
     {
         LOG_ERROR("[%s]: failed to send board rows", name.c_str());
         return;

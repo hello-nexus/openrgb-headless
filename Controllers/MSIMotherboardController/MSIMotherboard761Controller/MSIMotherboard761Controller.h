@@ -185,4 +185,27 @@ private:
     void            SendBoardRows(std::chrono::steady_clock::time_point now);
     void            SelectPerLedProtocol();
     void            MarkAllDirty();
+
+    /*-----------------------------------------------------*\
+    | Diagnostics for the header reports, in the order      |
+    | Update() sends them                                   |
+    \*-----------------------------------------------------*/
+    struct DiagHeader
+    {
+        unsigned int    sends           = 0;
+        unsigned int    failures        = 0;
+        int             last_result     = 0;
+        bool            first_logged    = false;
+    };
+
+    DiagHeader                                              diag_headers[5];
+    std::chrono::steady_clock::time_point                   diag_window_start;
+
+    void            DiagHeaderSent
+                        (
+                        unsigned int                        index,
+                        const FeaturePacket_PerLED_761&     packet,
+                        int                                 result
+                        );
+    void            DiagHeaderSummary(std::chrono::steady_clock::time_point now);
 };
