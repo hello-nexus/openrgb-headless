@@ -240,7 +240,12 @@ static const std::chrono::seconds       kDiagSummaryWindow(5);
 
 static const char * DiagRowName(int row)
 {
-    return((row >= 0) && (row < 18)) ? kDiagRowNames[row] : "extra";
+    if(row < 0)
+    {
+        return "no row";
+    }
+
+    return(row < 18) ? kDiagRowNames[row] : "extra";
 }
 
 static std::string DiagHex(const unsigned char * buf, std::size_t len)
@@ -671,7 +676,7 @@ MSIMotherboard761Controller::MSIMotherboard761Controller(hid_device* handle, con
                 diag_zones.append(diag_zone);
             }
 
-            LOG_ERROR("[msi761-diag] board '%s' (HID '%s') matched config %u of %u, JPIPE1 LEDs %d, zones: %s",
+            LOG_ERROR("[msi761-diag] board '%s' (HID '%s') matched config index %u (0-based, %u entries), JPIPE1 LEDs %d, zones: %s",
                       board_config->name->c_str(), name.c_str(), (unsigned int)(board_config - board_configs),
                       (unsigned int)(NUM_CONFS), numof_pipe1_leds, diag_zones.c_str());
         }
