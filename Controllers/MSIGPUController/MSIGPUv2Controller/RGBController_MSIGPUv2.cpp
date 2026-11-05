@@ -455,14 +455,14 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
     unsigned int    failures_before     = controller->GetWriteFailures();
 
     /*---------------------------------------------------------*\
-    | Direct frames arrive continuously. Once a full sequence   |
-    | has put the card in static mode at this brightness, an    |
-    | unchanged frame writes nothing and a changed frame        |
-    | writes all three color registers, then the mode that      |
-    | latches them. Idle and the brightness write stay out of   |
-    | the per-frame path. Any failed write unprimes, so the     |
-    | next frame redoes the full sequence rather than leaving   |
-    | a partial color staged                                    |
+    | Direct frames arrive continuously. An unchanged frame     |
+    | writes nothing. A changed frame runs the latch sequence   |
+    | (idle, colors, mode) without the brightness write, and    |
+    | frames closer together than the minimum interval are      |
+    | dropped so writes never queue; the next differing frame   |
+    | or the service heartbeat applies the latest color. Any    |
+    | failed write unprimes, so the next frame redoes the full  |
+    | sequence rather than leaving a partial color staged       |
     \*---------------------------------------------------------*/
     if(allow_color_only
     && current_mode.value == MSI_GPU_V2_MODE_STATIC
@@ -476,9 +476,19 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
             return;
         }
 
-        direct_primed = false;
+        std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
-        if(controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_R1, rgb[0])
+        if(now - direct_write_time < std::chrono::milliseconds(MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS))
+        {
+            return;
+        }
+
+        direct_write_time   = now;
+        direct_primed       = false;
+
+        if(controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_UNKNOWN, 0x00)
+        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_IDLE)
+        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_R1, rgb[0])
         && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_G1, rgb[1])
         && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_B1, rgb[2])
         && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_STATIC))
@@ -635,11 +645,13 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
         direct_rgb[0]       = RGBGetRValue(colors[0]);
         direct_rgb[1]       = RGBGetGValue(colors[0]);
         direct_rgb[2]       = RGBGetBValue(colors[0]);
+        direct_write_time   = std::chrono::steady_clock::now();
     }
 
     /*---------------------------------------------------------*\
     | Log the written values against a readback once per        |
-    | controller; Direct mode reaches here on every frame       |
+    | controller; Direct frames take the early path above once  |
+    | the card is primed                                        |
     \*---------------------------------------------------------*/
     if(!first_apply_logged.exchange(true))
     {

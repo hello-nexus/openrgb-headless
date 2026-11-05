@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 
 #include "pci_ids.h"
 #include "RGBController.h"
@@ -39,11 +40,13 @@ private:
 
     /*-----------------------------------------------------*\
     | State of the last full Direct sequence, so later      |
-    | Direct frames can write only the changed colors       |
+    | Direct frames can skip unchanged colors and the       |
+    | brightness write, and be rate limited                 |
     \*-----------------------------------------------------*/
     bool                direct_primed       = false;
     unsigned char       direct_brightness   = 0;
     unsigned char       direct_rgb[3]       = { 0, 0, 0 };
+    std::chrono::steady_clock::time_point direct_write_time;
 
     void       DeviceUpdateAll(const mode& current_mode, bool allow_color_only);
 };
