@@ -457,12 +457,13 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
     /*---------------------------------------------------------*\
     | Direct frames arrive continuously. An unchanged frame     |
     | writes nothing. A changed frame runs the latch sequence   |
-    | (idle, colors, mode) without the brightness write, and    |
-    | frames closer together than the minimum interval are      |
-    | dropped so writes never queue; the next differing frame   |
-    | or the service heartbeat applies the latest color. Any    |
-    | failed write unprimes, so the next frame redoes the full  |
-    | sequence rather than leaving a partial color staged       |
+    | (idle, colors, brightness, mode) as the full static       |
+    | sequence does, and frames closer together than the        |
+    | minimum interval are dropped so writes never queue; a     |
+    | dropped frame relies on the caller sending the color      |
+    | again. Any failed write unprimes, so the next frame       |
+    | redoes the full sequence rather than leaving a partial    |
+    | color staged                                              |
     \*---------------------------------------------------------*/
     if(allow_color_only
     && current_mode.value == MSI_GPU_V2_MODE_STATIC
@@ -491,6 +492,7 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
         && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_R1, rgb[0])
         && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_G1, rgb[1])
         && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_B1, rgb[2])
+        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_BRIGHTNESS, direct_brightness)
         && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_STATIC))
         {
             direct_rgb[0]   = rgb[0];
