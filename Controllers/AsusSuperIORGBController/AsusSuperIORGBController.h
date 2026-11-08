@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <string>
 
 /*---------------------------------------------------------*\
@@ -70,9 +71,11 @@ private:
     bool            last_valid;
     unsigned int    last_effect;
     unsigned int    last_speed;
-    unsigned char   last_red;
-    unsigned char   last_green;
-    unsigned char   last_blue;
+    unsigned char   last_r4;
+    unsigned char   last_g4;
+    unsigned char   last_b4;
 
-    bool            Write(unsigned int effect, unsigned int speed, unsigned char red, unsigned char green, unsigned char blue);
+    std::chrono::steady_clock::time_point last_write;
+
+    bool            Write(unsigned int effect, unsigned int speed, unsigned char r4, unsigned char g4, unsigned char b4);
 };

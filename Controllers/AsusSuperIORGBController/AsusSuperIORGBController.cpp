@@ -8,6 +8,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <memory>
 #include "AsusSuperIORGBController.h"
 #include "LogManager.h"
 #include "super_io.h"
@@ -25,6 +26,8 @@
 | bounded; on timeout the access is skipped.                |
 \*---------------------------------------------------------*/
 #define ASUS_SIO_LOCK_TIMEOUT_MS    250
+#define ASUS_SIO_LOCK_ATTEMPTS      3
+#define ASUS_SIO_DEDUPE_WINDOW_MS   1000
 
 class AsusSuperIOLock
 {
@@ -34,7 +37,16 @@ public:
 #ifdef _WIN32
         acquired = false;
 
+        /*-------------------------------------------------*\
+        | Only ERROR_FILE_NOT_FOUND means the lock is       |
+        | absent; any other open failure skips the access   |
+        \*-------------------------------------------------*/
         asus_sio_event = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, "Global\\ASUS_SIO_MUTEX");
+        if(asus_sio_event == NULL && GetLastError() != ERROR_FILE_NOT_FOUND)
+        {
+            LOG_WARNING("[ASUS Super IO] Could not open Global\\ASUS_SIO_MUTEX (error %lu), skipping access", GetLastError());
+            return;
+        }
         if(asus_sio_event != NULL)
         {
             if(WaitForSingleObject(asus_sio_event, ASUS_SIO_LOCK_TIMEOUT_MS) != WAIT_OBJECT_0)
@@ -47,6 +59,12 @@ public:
         }
 
         asus_isa_mutex = OpenMutexA(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, "Global\\ASUS_ISABUS_MUTEX");
+        if(asus_isa_mutex == NULL && GetLastError() != ERROR_FILE_NOT_FOUND)
+        {
+            LOG_WARNING("[ASUS Super IO] Could not open Global\\ASUS_ISABUS_MUTEX (error %lu), skipping access", GetLastError());
+            Release();
+            return;
+        }
         if(asus_isa_mutex != NULL)
         {
             DWORD status = WaitForSingleObject(asus_isa_mutex, ASUS_SIO_LOCK_TIMEOUT_MS);
@@ -135,6 +153,26 @@ private:
 };
 
 /*---------------------------------------------------------*\
+| Each attempt blocks on the lock waits; NULL after the     |
+| last failed attempt                                       |
+\*---------------------------------------------------------*/
+static std::unique_ptr<AsusSuperIOLock> AsusSuperIOAcquire()
+{
+    for(int attempt = 0; attempt < ASUS_SIO_LOCK_ATTEMPTS; attempt++)
+    {
+        std::unique_ptr<AsusSuperIOLock> lock(new AsusSuperIOLock());
+
+        if(lock->Acquired())
+        {
+            return(lock);
+        }
+    }
+
+    LOG_WARNING("[ASUS Super IO] Could not take the Super IO locks after %d attempts", ASUS_SIO_LOCK_ATTEMPTS);
+    return(nullptr);
+}
+
+/*---------------------------------------------------------*\
 | The super_io layer has no bare index-port write; an inb   |
 | of the key writes it to the index port, as superio_enter  |
 | does for 0x87                                             |
@@ -175,9 +213,9 @@ AsusSuperIORGBController::AsusSuperIORGBController(int sioaddr, std::string dev_
     last_valid      = false;
     last_effect     = 0;
     last_speed      = 0;
-    last_red        = 0;
-    last_green      = 0;
-    last_blue       = 0;
+    last_r4         = 0;
+    last_g4         = 0;
+    last_b4         = 0;
 }
 
 AsusSuperIORGBController::~AsusSuperIORGBController()
@@ -187,9 +225,9 @@ AsusSuperIORGBController::~AsusSuperIORGBController()
 
 int AsusSuperIORGBController::ReadChipID(int sioaddr)
 {
-    AsusSuperIOLock lock;
+    std::unique_ptr<AsusSuperIOLock> lock = AsusSuperIOAcquire();
 
-    if(!lock.Acquired())
+    if(!lock)
     {
         return(-1);
     }
@@ -224,34 +262,48 @@ std::string AsusSuperIORGBController::GetDeviceName()
 void AsusSuperIORGBController::Apply(unsigned int effect, unsigned int speed, unsigned char red, unsigned char green, unsigned char blue)
 {
     /*-----------------------------------------------------*\
-    | The chip is shared with fan control; skip a write     |
-    | that would not change anything                        |
+    | The chip takes 4 bits per channel                     |
     \*-----------------------------------------------------*/
+    unsigned char r4 = red   >> 4;
+    unsigned char g4 = green >> 4;
+    unsigned char b4 = blue  >> 4;
+
     if(effect == ASUS_SIO_EFFECT_OFF)
     {
         speed   = 0;
-        red     = 0;
-        green   = 0;
-        blue    = 0;
+        r4      = 0;
+        g4      = 0;
+        b4      = 0;
     }
 
-    if(last_valid && effect == last_effect && speed == last_speed && red == last_red && green == last_green && blue == last_blue)
+    /*-----------------------------------------------------*\
+    | The chip is shared with fan control: skip an          |
+    | identical write only shortly after the last one, so a |
+    | later re-apply (resume, vendor tool) reaches the chip |
+    \*-----------------------------------------------------*/
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+
+    if(last_valid && effect == last_effect && speed == last_speed && r4 == last_r4 && g4 == last_g4 && b4 == last_b4
+    && now - last_write < std::chrono::milliseconds(ASUS_SIO_DEDUPE_WINDOW_MS))
     {
         return;
     }
 
-    if(Write(effect, speed, red, green, blue))
+    last_valid = false;
+
+    if(Write(effect, speed, r4, g4, b4))
     {
         last_valid  = true;
+        last_write  = now;
         last_effect = effect;
         last_speed  = speed;
-        last_red    = red;
-        last_green  = green;
-        last_blue   = blue;
+        last_r4     = r4;
+        last_g4     = g4;
+        last_b4     = b4;
     }
 }
 
-bool AsusSuperIORGBController::Write(unsigned int effect, unsigned int speed, unsigned char red, unsigned char green, unsigned char blue)
+bool AsusSuperIORGBController::Write(unsigned int effect, unsigned int speed, unsigned char r4, unsigned char g4, unsigned char b4)
 {
     unsigned char       mode;
     const unsigned char* params     = params_static;
@@ -291,20 +343,16 @@ bool AsusSuperIORGBController::Write(unsigned int effect, unsigned int speed, un
     }
 
     /*-----------------------------------------------------*\
-    | 4 bits per channel, the same color in all 8 stages    |
-    | (low nibble odd stage, high nibble even stage)        |
+    | The same color in all 8 stages (low nibble odd stage, |
+    | high nibble even stage)                               |
     \*-----------------------------------------------------*/
-    unsigned char r4 = red   >> 4;
-    unsigned char g4 = green >> 4;
-    unsigned char b4 = blue  >> 4;
-
     unsigned char r_byte = (unsigned char)((r4 << 4) | r4);
     unsigned char g_byte = (unsigned char)((g4 << 4) | g4);
     unsigned char b_byte = (unsigned char)((b4 << 4) | b4);
 
-    AsusSuperIOLock lock;
+    std::unique_ptr<AsusSuperIOLock> lock = AsusSuperIOAcquire();
 
-    if(!lock.Acquired())
+    if(!lock)
     {
         return(false);
     }

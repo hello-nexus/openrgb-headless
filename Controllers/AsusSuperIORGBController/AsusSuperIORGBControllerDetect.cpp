@@ -54,10 +54,17 @@ DetectedControllers DetectAsusSuperIORGBControllers()
         int sioaddr = compatible_devices[i].sioaddr;
         int chip_id = AsusSuperIORGBController::ReadChipID(sioaddr);
 
+        if(chip_id < 0)
+        {
+            LOG_WARNING("[ASUS Super IO] %s: could not read the Super IO chip ID at 0x%02X", board_dmi.c_str(), sioaddr);
+            break;
+        }
+
         LOG_TRACE("[ASUS Super IO] %s: Super IO address 0x%02X probed value 0x%04X", board_dmi.c_str(), sioaddr, chip_id);
 
-        if(chip_id < 0 || (unsigned int)(chip_id & SIO_ID_MASK) != compatible_devices[i].chip_id)
+        if((unsigned int)(chip_id & SIO_ID_MASK) != compatible_devices[i].chip_id)
         {
+            LOG_WARNING("[ASUS Super IO] %s: unexpected Super IO chip ID 0x%04X at 0x%02X", board_dmi.c_str(), chip_id, sioaddr);
             break;
         }
 
