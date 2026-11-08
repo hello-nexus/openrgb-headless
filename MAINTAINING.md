@@ -248,6 +248,21 @@ OR'ed register write, plus the Direct `SetRGSwap(false)` in `SetupZones()`.
 
 **Upstream PR candidate:** Yes.
 
+### Controllers/AsusSuperIORGBController - fork-only controller
+
+**What we added:** a new controller folder (no upstream equivalent) for the
+12V RGB header that ASUS boards without an Aura chip drive through the Nuvoton
+Super I/O (LDN 0x12/0x13/0x15). The detector matches the exact DMI baseboard
+name and the chip ID before any write. On Windows each config-mode access holds
+`Global\ASUS_SIO_MUTEX` and `Global\ASUS_ISABUS_MUTEX` when they exist (opened,
+never created) plus `Global\Access_ISABUS.HTP.Method`, with bounded waits.
+
+**Conflict resolution:** none expected; the folder is picked up by the
+`Controllers/*` globs. If upstream adds support for the same boards, drop ours
+in favor of theirs.
+
+**Upstream PR candidate:** Yes, once confirmed on hardware.
+
 ## Verifying after a merge
 
 The CI workflow at `.github/workflows/headless.yml` builds Windows, Linux,
