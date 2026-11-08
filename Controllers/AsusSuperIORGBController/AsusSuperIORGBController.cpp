@@ -29,11 +29,29 @@
 #define ASUS_SIO_LOCK_ATTEMPTS      3
 #define ASUS_SIO_DEDUPE_WINDOW_MS   1000
 
+#ifdef _WIN32
+/*---------------------------------------------------------*\
+| An open error does not clear up on retry; log it once     |
+\*---------------------------------------------------------*/
+static bool asus_sio_open_error_logged = false;
+
+static void AsusSuperIOLogOpenError(const char* lock_name, DWORD error)
+{
+    if(!asus_sio_open_error_logged)
+    {
+        asus_sio_open_error_logged = true;
+        LOG_WARNING("[ASUS Super IO] Could not open %s (error %lu), skipping Super IO access", lock_name, error);
+    }
+}
+#endif
+
 class AsusSuperIOLock
 {
 public:
     AsusSuperIOLock()
     {
+        open_error = false;
+
 #ifdef _WIN32
         acquired = false;
 
@@ -42,10 +60,15 @@ public:
         | absent; any other open failure skips the access   |
         \*-------------------------------------------------*/
         asus_sio_event = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, "Global\\ASUS_SIO_MUTEX");
-        if(asus_sio_event == NULL && GetLastError() != ERROR_FILE_NOT_FOUND)
+        if(asus_sio_event == NULL)
         {
-            LOG_WARNING("[ASUS Super IO] Could not open Global\\ASUS_SIO_MUTEX (error %lu), skipping access", GetLastError());
-            return;
+            DWORD error = GetLastError();
+            if(error != ERROR_FILE_NOT_FOUND)
+            {
+                AsusSuperIOLogOpenError("Global\\ASUS_SIO_MUTEX", error);
+                open_error = true;
+                return;
+            }
         }
         if(asus_sio_event != NULL)
         {
@@ -59,11 +82,16 @@ public:
         }
 
         asus_isa_mutex = OpenMutexA(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, "Global\\ASUS_ISABUS_MUTEX");
-        if(asus_isa_mutex == NULL && GetLastError() != ERROR_FILE_NOT_FOUND)
+        if(asus_isa_mutex == NULL)
         {
-            LOG_WARNING("[ASUS Super IO] Could not open Global\\ASUS_ISABUS_MUTEX (error %lu), skipping access", GetLastError());
-            Release();
-            return;
+            DWORD error = GetLastError();
+            if(error != ERROR_FILE_NOT_FOUND)
+            {
+                AsusSuperIOLogOpenError("Global\\ASUS_ISABUS_MUTEX", error);
+                open_error = true;
+                Release();
+                return;
+            }
         }
         if(asus_isa_mutex != NULL)
         {
@@ -81,7 +109,8 @@ public:
         isa_mutex = CreateMutexA(NULL, FALSE, "Global\\Access_ISABUS.HTP.Method");
         if(isa_mutex == NULL)
         {
-            LOG_WARNING("[ASUS Super IO] Could not open Global\\Access_ISABUS.HTP.Method, skipping access");
+            AsusSuperIOLogOpenError("Global\\Access_ISABUS.HTP.Method", GetLastError());
+            open_error = true;
             Release();
             return;
         }
@@ -113,8 +142,14 @@ public:
         return(acquired);
     }
 
+    bool OpenError() const
+    {
+        return(open_error);
+    }
+
 private:
     bool    acquired;
+    bool    open_error;
 
 #ifdef _WIN32
     HANDLE  asus_sio_event  = NULL;
@@ -153,8 +188,8 @@ private:
 };
 
 /*---------------------------------------------------------*\
-| Each attempt blocks on the lock waits; NULL after the     |
-| last failed attempt                                       |
+| Each attempt blocks on the lock waits; only a wait        |
+| timeout is retried. NULL when the locks were not taken.   |
 \*---------------------------------------------------------*/
 static std::unique_ptr<AsusSuperIOLock> AsusSuperIOAcquire()
 {
@@ -165,6 +200,11 @@ static std::unique_ptr<AsusSuperIOLock> AsusSuperIOAcquire()
         if(lock->Acquired())
         {
             return(lock);
+        }
+
+        if(lock->OpenError())
+        {
+            return(nullptr);
         }
     }
 
@@ -283,8 +323,14 @@ void AsusSuperIORGBController::Apply(unsigned int effect, unsigned int speed, un
     \*-----------------------------------------------------*/
     std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
-    if(last_valid && effect == last_effect && speed == last_speed && r4 == last_r4 && g4 == last_g4 && b4 == last_b4
-    && now - last_write < std::chrono::milliseconds(ASUS_SIO_DEDUPE_WINDOW_MS))
+    bool same   = last_valid && effect == last_effect && speed == last_speed && r4 == last_r4 && g4 == last_g4 && b4 == last_b4;
+    bool steady = effect == ASUS_SIO_EFFECT_STATIC || effect == ASUS_SIO_EFFECT_OFF;
+
+    /*-----------------------------------------------------*\
+    | A rewrite restarts an animated mode, so those skip an |
+    | identical write with no time window                   |
+    \*-----------------------------------------------------*/
+    if(same && (!steady || now - last_write < std::chrono::milliseconds(ASUS_SIO_DEDUPE_WINDOW_MS)))
     {
         return;
     }
