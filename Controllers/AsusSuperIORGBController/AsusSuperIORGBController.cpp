@@ -8,6 +8,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <atomic>
 #include <memory>
 #include "AsusSuperIORGBController.h"
 #include "LogManager.h"
@@ -28,18 +29,18 @@
 #define ASUS_SIO_LOCK_TIMEOUT_MS    250
 #define ASUS_SIO_LOCK_ATTEMPTS      3
 #define ASUS_SIO_DEDUPE_WINDOW_MS   1000
+#define ASUS_SIO_ANIM_WINDOW_MS     30000
 
 #ifdef _WIN32
 /*---------------------------------------------------------*\
 | An open error does not clear up on retry; log it once     |
 \*---------------------------------------------------------*/
-static bool asus_sio_open_error_logged = false;
+static std::atomic<bool> asus_sio_open_error_logged(false);
 
 static void AsusSuperIOLogOpenError(const char* lock_name, DWORD error)
 {
-    if(!asus_sio_open_error_logged)
+    if(!asus_sio_open_error_logged.exchange(true))
     {
-        asus_sio_open_error_logged = true;
         LOG_WARNING("[ASUS Super IO] Could not open %s (error %lu), skipping Super IO access", lock_name, error);
     }
 }
@@ -316,21 +317,18 @@ void AsusSuperIORGBController::Apply(unsigned int effect, unsigned int speed, un
         b4      = 0;
     }
 
-    /*-----------------------------------------------------*\
-    | The chip is shared with fan control: skip an          |
-    | identical write only shortly after the last one, so a |
-    | later re-apply (resume, vendor tool) reaches the chip |
-    \*-----------------------------------------------------*/
     std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
     bool same   = last_valid && effect == last_effect && speed == last_speed && r4 == last_r4 && g4 == last_g4 && b4 == last_b4;
     bool steady = effect == ASUS_SIO_EFFECT_STATIC || effect == ASUS_SIO_EFFECT_OFF;
 
     /*-----------------------------------------------------*\
-    | A rewrite restarts an animated mode, so those skip an |
-    | identical write with no time window                   |
+    | Skip an identical write inside the window; a rewrite  |
+    | restarts an animated mode, so theirs is longer        |
     \*-----------------------------------------------------*/
-    if(same && (!steady || now - last_write < std::chrono::milliseconds(ASUS_SIO_DEDUPE_WINDOW_MS)))
+    std::chrono::milliseconds window(steady ? ASUS_SIO_DEDUPE_WINDOW_MS : ASUS_SIO_ANIM_WINDOW_MS);
+
+    if(same && now - last_write < window)
     {
         return;
     }
