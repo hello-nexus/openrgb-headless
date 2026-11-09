@@ -22,7 +22,9 @@ typedef unsigned char msi_gpu_dev_id;
 #define MSI_GPU_V2_BRIGHTNESS_MIN           1
 #define MSI_GPU_V2_BRIGHTNESS_MAX           5
 #define MSI_GPU_V2_BRIGHTNESS_MULTI         20
-#define MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS   200
+#define MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS   66
+#define MSI_GPU_V2_WRITE_SETTLE_MS          20
+#define MSI_GPU_V2_DIRECT_WRITE_SETTLE_MS   10
 
 enum
 {
@@ -96,7 +98,7 @@ public:
     std::string   ReadStateString();
 
     unsigned char MSIGPURegisterRead(unsigned char reg);
-    bool          MSIGPURegisterWrite(unsigned char reg, unsigned char val);
+    bool          MSIGPURegisterWrite(unsigned char reg, unsigned char val, unsigned int settle_ms = MSI_GPU_V2_WRITE_SETTLE_MS);
     bool          MSIGPUBlockWrite(unsigned char reg,unsigned char *val, unsigned char len);
     unsigned int  GetWriteFailures();
 

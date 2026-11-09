@@ -456,14 +456,16 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
 
     /*---------------------------------------------------------*\
     | Direct frames arrive continuously. An unchanged frame     |
-    | writes nothing. A changed frame runs the latch sequence   |
-    | (idle, colors, brightness, mode) as the full static       |
-    | sequence does, and frames closer together than the        |
-    | minimum interval are dropped so writes never queue; a     |
-    | dropped frame relies on the caller sending the color      |
-    | again. Any failed write unprimes, so the next frame       |
-    | redoes the full sequence rather than leaving a partial    |
-    | color staged                                              |
+    | writes nothing. A changed frame writes idle, R, G, B and  |
+    | the static mode with a shorter settle per write; the card |
+    | latches colors only on the mode write, and without idle   |
+    | it reloads its stored profile (blue). The unknown and     |
+    | brightness registers are written only by the full         |
+    | sequence below. Frames closer together than the minimum   |
+    | interval are dropped so writes never queue; a dropped     |
+    | frame relies on the caller sending the color again. Any   |
+    | failed write unprimes, so the next frame redoes the full  |
+    | sequence rather than leaving a partial color staged       |
     \*---------------------------------------------------------*/
     if(allow_color_only
     && current_mode.value == MSI_GPU_V2_MODE_STATIC
@@ -487,13 +489,11 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
         direct_write_time   = now;
         direct_primed       = false;
 
-        if(controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_UNKNOWN, 0x00)
-        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_IDLE)
-        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_R1, rgb[0])
-        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_G1, rgb[1])
-        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_B1, rgb[2])
-        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_BRIGHTNESS, direct_brightness)
-        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_STATIC))
+        if(controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_IDLE, MSI_GPU_V2_DIRECT_WRITE_SETTLE_MS)
+        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_R1, rgb[0], MSI_GPU_V2_DIRECT_WRITE_SETTLE_MS)
+        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_G1, rgb[1], MSI_GPU_V2_DIRECT_WRITE_SETTLE_MS)
+        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_B1, rgb[2], MSI_GPU_V2_DIRECT_WRITE_SETTLE_MS)
+        && controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_STATIC, MSI_GPU_V2_DIRECT_WRITE_SETTLE_MS))
         {
             direct_rgb[0]   = rgb[0];
             direct_rgb[1]   = rgb[1];
