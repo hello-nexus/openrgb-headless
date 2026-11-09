@@ -122,10 +122,14 @@ unsigned char MSIGPUv2Controller::MSIGPURegisterRead(unsigned char reg)
     return bus->i2c_smbus_read_byte_data(dev, reg);
 }
 
-bool MSIGPUv2Controller::MSIGPURegisterWrite(unsigned char reg, unsigned char val)
+/*---------------------------------------------------------*\
+| settle_ms is the pause after the write; the init and mode |
+| paths keep the default, Direct frames pass a shorter one  |
+\*---------------------------------------------------------*/
+bool MSIGPUv2Controller::MSIGPURegisterWrite(unsigned char reg, unsigned char val, unsigned int settle_ms)
 {
     s32 result = bus->i2c_smbus_write_byte_data(dev, reg, val);
-    std::this_thread::sleep_for(20ms);
+    std::this_thread::sleep_for(std::chrono::milliseconds(settle_ms));
     if(result < 0)
     {
         write_failures++;
