@@ -107,9 +107,8 @@ DetectedControllers DetectRazerARGBControllers(hid_device_info* info, const std:
     /*-----------------------------------------------------*\
     | Razer's ARGB controller uses two different interfaces,|
     | one for 90-byte Razer report packets and one for      |
-    | 320-byte ARGB packets (380-byte on the wireless       |
-    | controller).  Interface 0 for 90-byte and interface 1 |
-    | for ARGB packets.                                     |
+    | ARGB packets.  Interface 0 for 90-byte and interface  |
+    | 1 for ARGB packets.                                   |
     |                                                       |
     | Create a local copy of the HID enumerations for the   |
     | Razer ARGB controller VID/PID and iterate through it. |

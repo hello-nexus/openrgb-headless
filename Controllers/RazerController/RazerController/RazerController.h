@@ -250,8 +250,8 @@ PACK(struct razer_report
 
 /*---------------------------------------------------------*\
 | Razer ARGB Report Type (taken from OpenRazer)             |
-|   Sized for the 381-byte wireless controller report, the  |
-|   wired controller sends only the first 321 bytes         |
+|   Sized for the wireless controller report, the wired     |
+|   controller sends only the length of its own report      |
 \*---------------------------------------------------------*/
 PACK(struct razer_argb_report
 {
@@ -289,7 +289,7 @@ public:
     void                    SetLEDs(RGBColor* colors);
     void                    InvalidateCustomFrame();
     void                    SetAddressableZoneSizes(unsigned char zone_1_size, unsigned char zone_2_size, unsigned char zone_3_size, unsigned char zone_4_size, unsigned char zone_5_size, unsigned char zone_6_size);
-    unsigned char           GetAddressableZoneSize(unsigned int zone_idx);
+    unsigned char           GetAddressableDeviceZoneSize(unsigned int zone_idx);
 
     void                    SetModeBreathingRandom();
     void                    SetModeBreathingOneColor(unsigned char red, unsigned char grn, unsigned char blu);
@@ -359,9 +359,9 @@ private:
     DeviceGuardManager*     guard_manager_ptr;
 
     /*---------------------------------------------------------*\
-    | Wireless ARGB controller channel sizes, as last read from |
-    | (0x0F:0x88) or sent to (0x0F:0x08) the device, and the    |
-    | last frame set, resent every 5 s like Synapse does        |
+    | Wireless ARGB controller channel sizes, as reported by    |
+    | the device and as last sent to it, and the last frame set |
+    | for the resend Synapse does                               |
     \*---------------------------------------------------------*/
     unsigned char           argb_zone_sizes[3];
     unsigned char           argb_device_zone_sizes[3];

@@ -201,7 +201,7 @@ void RazerController::KeepaliveThreadFunction()
     {
         /*-------------------------------------------------------------*\
         | Synapse resends the last frame set to the wireless ARGB       |
-        | controller every 5 s while the colors do not change           |
+        | controller while the colors do not change                     |
         \*-------------------------------------------------------------*/
         if(dev_pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
         {
@@ -294,11 +294,11 @@ void RazerController::SetBrightness(unsigned char brightness)
     razer_set_brightness(brightness);
 }
 
-unsigned char RazerController::GetAddressableZoneSize(unsigned int zone_idx)
+unsigned char RazerController::GetAddressableDeviceZoneSize(unsigned int zone_idx)
 {
     if(zone_idx < 3)
     {
-        return(argb_zone_sizes[zone_idx]);
+        return(argb_device_zone_sizes[zone_idx]);
     }
 
     return(0);
@@ -383,9 +383,8 @@ void RazerController::SetLEDsWirelessARGB(RGBColor* colors)
 {
     /*-----------------------------------------------------------------*\
     | Synapse sends all three channels every update, each padded with   |
-    | black to the largest channel size (last index 0x77 for 120/60/60) |
-    | and the last one flagged 0x84, after (re)entering the custom      |
-    | frame effect with 0x0F:0x02 00 00 08 00 00 00                     |
+    | black to the largest channel size, after (re)entering the custom  |
+    | frame effect                                                      |
     \*-----------------------------------------------------------------*/
     unsigned int    matrix_cols = device_list[device_index]->cols;
     unsigned char   max_size    = 1;
@@ -436,9 +435,9 @@ void RazerController::SetLEDsWirelessARGB(RGBColor* colors)
 void RazerController::razer_get_wireless_argb_zone_sizes()
 {
     /*-----------------------------------------------------------------*\
-    | 0x0F:0x88 returns the channel count, then a channel LED ID and    |
-    | size per channel (03 1A 78 1B 3C 1C 3C for 120/60/60).  Fall back |
-    | to 120 LEDs, the largest size seen working, if it cannot be read  |
+    | The reply holds the channel count, then a channel LED ID and size |
+    | per channel.  If it cannot be read, fall back to the largest size |
+    | seen working                                                      |
     \*-----------------------------------------------------------------*/
     struct razer_report report          = razer_create_report(0x0F, 0x88, 0x07);
     struct razer_report response_report = razer_create_response();
@@ -459,8 +458,13 @@ void RazerController::razer_get_wireless_argb_zone_sizes()
             unsigned char led_id = response_report.arguments[1 + (channel * 2)];
             unsigned char size   = response_report.arguments[2 + (channel * 2)];
 
-            if((led_id == (RAZER_LED_ID_ARGB_CH_1 + channel)) && (size != 0) && (size <= device_list[device_index]->cols))
+            if(led_id == (RAZER_LED_ID_ARGB_CH_1 + channel))
             {
+                if(size > device_list[device_index]->cols)
+                {
+                    size = (unsigned char)device_list[device_index]->cols;
+                }
+
                 argb_device_zone_sizes[channel] = size;
             }
         }
