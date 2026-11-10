@@ -236,8 +236,8 @@ void RazerController::SetAddressableZoneSizes(unsigned char zone_1_size, unsigne
     /*-----------------------------------------------------------------*\
     | The wireless ARGB controller takes Synapse's 0x0F:0x08 format: a  |
     | channel count, then a channel LED ID (0x1A + channel) and size    |
-    | per channel.  Synapse never sends a size of 0 (it keeps the size  |
-    | the device reported for an unused port), so neither do we         |
+    | per channel.  A size of 0 frees that channel's share of the       |
+    | controller's total LED budget for the other channels              |
     \*-----------------------------------------------------------------*/
     if(dev_pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
     {
@@ -250,7 +250,7 @@ void RazerController::SetAddressableZoneSizes(unsigned char zone_1_size, unsigne
 
         for(unsigned int channel = 0; channel < 3; channel++)
         {
-            argb_zone_sizes[channel]            = (sizes[channel] != 0) ? sizes[channel] : argb_device_zone_sizes[channel];
+            argb_zone_sizes[channel]            = sizes[channel];
             report.arguments[1 + (channel * 2)] = RAZER_LED_ID_ARGB_CH_1 + channel;
             report.arguments[2 + (channel * 2)] = argb_zone_sizes[channel];
         }
@@ -387,7 +387,7 @@ void RazerController::SetLEDsWirelessARGB(RGBColor* colors)
     | frame effect                                                      |
     \*-----------------------------------------------------------------*/
     unsigned int    matrix_cols = device_list[device_index]->cols;
-    unsigned char   max_size    = 1;
+    unsigned char   max_size    = 1;    /* last index never underflows when every channel is 0 */
     unsigned char   row_data[125 * 3];
 
     std::lock_guard<std::mutex> frame_lock(argb_frame_mutex);
