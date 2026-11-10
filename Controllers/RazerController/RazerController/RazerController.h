@@ -289,6 +289,7 @@ public:
     void                    SetLEDs(RGBColor* colors);
     void                    InvalidateCustomFrame();
     void                    SetAddressableZoneSizes(unsigned char zone_1_size, unsigned char zone_2_size, unsigned char zone_3_size, unsigned char zone_4_size, unsigned char zone_5_size, unsigned char zone_6_size);
+    unsigned char           GetAddressableZoneSize(unsigned int zone_idx);
 
     void                    SetModeBreathingRandom();
     void                    SetModeBreathingOneColor(unsigned char red, unsigned char grn, unsigned char blu);
@@ -358,6 +359,18 @@ private:
     DeviceGuardManager*     guard_manager_ptr;
 
     /*---------------------------------------------------------*\
+    | Wireless ARGB controller channel sizes, as last read from |
+    | (0x0F:0x88) or sent to (0x0F:0x08) the device, and the    |
+    | last frame set, resent every 5 s like Synapse does        |
+    \*---------------------------------------------------------*/
+    unsigned char           argb_zone_sizes[3];
+    unsigned char           argb_device_zone_sizes[3];
+    std::mutex              argb_frame_mutex;
+    razer_argb_report       argb_last_frames[3];
+    bool                    argb_last_frames_valid;
+    std::chrono::steady_clock::time_point argb_last_frame_time;
+
+    /*---------------------------------------------------------*\
     | Private functions based on OpenRazer                      |
     \*---------------------------------------------------------*/
     unsigned char           razer_calculate_crc(razer_report* report);
@@ -411,6 +424,8 @@ private:
     void                    razer_set_mode_breathing_two_colors(unsigned char r1, unsigned char g1, unsigned char b1, unsigned char r2, unsigned char g2, unsigned char b2);
     void                    razer_set_mode_custom();
     void                    SetLEDsHuntsmanV2Analog(RGBColor* colors);
+    void                    SetLEDsWirelessARGB(RGBColor* colors);
+    void                    razer_get_wireless_argb_zone_sizes();
     void                    razer_set_mode_none();
     void                    razer_set_mode_spectrum_cycle();
     void                    razer_set_mode_static(unsigned char red, unsigned char grn, unsigned char blu);

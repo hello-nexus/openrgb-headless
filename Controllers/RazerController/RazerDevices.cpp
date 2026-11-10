@@ -9134,22 +9134,22 @@ static const razer_device chromaargb_device =
 |                                                               |
 |  Zone "Channel 1"                                             |
 |       Linear                                                  |
-|       90 LEDs                                                 |
+|       up to 125 LEDs                                          |
 |                                                               |
 |  Zone "Channel 2"                                             |
 |       Linear                                                  |
-|       90 LEDs                                                 |
+|       up to 125 LEDs                                          |
 |                                                               |
 |  Zone "Channel 3"                                             |
 |       Linear                                                  |
-|       90 LEDs                                                 |
+|       up to 125 LEDs                                          |
 \*-------------------------------------------------------------*/
 static const razer_zone chromawirelessargb_zone_1 =
 {
     "Channel 1",
     ZONE_TYPE_LINEAR,
     1,
-    90
+    125
 };
 
 static const razer_zone chromawirelessargb_zone_2 =
@@ -9157,7 +9157,7 @@ static const razer_zone chromawirelessargb_zone_2 =
     "Channel 2",
     ZONE_TYPE_LINEAR,
     1,
-    90
+    125
 };
 
 static const razer_zone chromawirelessargb_zone_3 =
@@ -9165,7 +9165,7 @@ static const razer_zone chromawirelessargb_zone_3 =
     "Channel 3",
     ZONE_TYPE_LINEAR,
     1,
-    90
+    125
 };
 
 static const razer_device chromawirelessargb_device =
@@ -9177,7 +9177,7 @@ static const razer_device chromawirelessargb_device =
     0x1F,
     RAZER_LED_ID_BACKLIGHT,
     3,
-    90,
+    125,
     {
         &chromawirelessargb_zone_1,
         &chromawirelessargb_zone_2,
