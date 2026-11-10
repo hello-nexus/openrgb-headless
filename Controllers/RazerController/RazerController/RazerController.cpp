@@ -66,6 +66,19 @@ RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_ha
     dev_transaction_id = device_list[device_index]->transaction_id;
 
     /*-----------------------------------------------------------------*\
+    | The ARGB feature report must match the HID descriptor length,     |
+    | including the report ID byte                                      |
+    \*-----------------------------------------------------------------*/
+    if(dev_pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
+    {
+        argb_report_size = 381;
+    }
+    else
+    {
+        argb_report_size = 321;
+    }
+
+    /*-----------------------------------------------------------------*\
     | The Huntsman V2 Analog drops and repeats key presses when custom  |
     | frame rows arrive faster than it acknowledges them, so read the   |
     | status of each report before sending the next                     |
@@ -82,6 +95,25 @@ RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_ha
         case RAZER_FIREFLY_HYPERFLUX_PID:
             {
             razer_set_device_mode(RAZER_DEVICE_MODE_SOFTWARE);
+            }
+            break;
+
+        /*-------------------------------------------------------------*\
+        | Synapse switches the wireless ARGB controller to software     |
+        | mode and sends this 0x0F:0x02 once before streaming frames    |
+        \*-------------------------------------------------------------*/
+        case RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID:
+            {
+            razer_set_device_mode(RAZER_DEVICE_MODE_SOFTWARE);
+
+            razer_report report     = razer_create_report(0x0F, 0x02, 0x06);
+            report.arguments[0]     = 0x00;
+            report.arguments[1]     = 0x00;
+            report.arguments[2]     = 0x08;
+            report.arguments[3]     = 0x03;
+            report.arguments[4]     = 0x88;
+            report.arguments[5]     = 0x00;
+            razer_usb_send(&report);
             }
             break;
     }
@@ -843,7 +875,7 @@ razer_argb_report RazerController::razer_create_custom_frame_argb_report(unsigne
     \*---------------------------------------------------------*/
     report.hid_id               = 0;
 
-    if(row_index < 5)
+    if(row_index < (device_list[device_index]->rows - 1))
     {
         report.report_id        = 0x04;
     }
@@ -1528,23 +1560,19 @@ void RazerController::razer_set_brightness(unsigned char brightness)
             break;
 
         case RAZER_MATRIX_TYPE_EXTENDED_ARGB:
-            report                          = razer_create_brightness_extended_matrix_report(RAZER_STORAGE_NO_SAVE, RAZER_LED_ID_ARGB_CH_1, brightness);
-            razer_usb_send(&report);
+            {
+            /*-------------------------------------------------*\
+            | One LED ID per channel.  Synapse sends storage    |
+            | 0x01 to the wireless controller                   |
+            \*-------------------------------------------------*/
+            unsigned char storage           = (dev_pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID) ? RAZER_STORAGE_SAVE : RAZER_STORAGE_NO_SAVE;
 
-            report                          = razer_create_brightness_extended_matrix_report(RAZER_STORAGE_NO_SAVE, RAZER_LED_ID_ARGB_CH_2, brightness);
-            razer_usb_send(&report);
-
-            report                          = razer_create_brightness_extended_matrix_report(RAZER_STORAGE_NO_SAVE, RAZER_LED_ID_ARGB_CH_3, brightness);
-            razer_usb_send(&report);
-
-            report                          = razer_create_brightness_extended_matrix_report(RAZER_STORAGE_NO_SAVE, RAZER_LED_ID_ARGB_CH_4, brightness);
-            razer_usb_send(&report);
-
-            report                          = razer_create_brightness_extended_matrix_report(RAZER_STORAGE_NO_SAVE, RAZER_LED_ID_ARGB_CH_5, brightness);
-            razer_usb_send(&report);
-
-            report                          = razer_create_brightness_extended_matrix_report(RAZER_STORAGE_NO_SAVE, RAZER_LED_ID_ARGB_CH_6, brightness);
-            razer_usb_send(&report);
+            for(unsigned int channel = 0; channel < device_list[device_index]->rows; channel++)
+            {
+                report                      = razer_create_brightness_extended_matrix_report(storage, RAZER_LED_ID_ARGB_CH_1 + channel, brightness);
+                razer_usb_send(&report);
+            }
+            }
             break;
 
         case RAZER_MATRIX_TYPE_CUSTOM:
@@ -2222,5 +2250,5 @@ int RazerController::razer_usb_send(razer_report* report)
 int RazerController::razer_usb_send_argb(razer_argb_report* report)
 {
     DeviceGuardLock _ = guard_manager_ptr->AwaitExclusiveAccess();
-    return hid_send_feature_report(dev_argb, (unsigned char*)report, sizeof(*report));
+    return hid_send_feature_report(dev_argb, (unsigned char*)report, argb_report_size);
 }

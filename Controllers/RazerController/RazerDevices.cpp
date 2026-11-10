@@ -9130,6 +9130,66 @@ static const razer_device chromaargb_device =
 };
 
 /*-------------------------------------------------------------*\
+|  Razer Chroma Wireless ARGB Controller                        |
+|                                                               |
+|  Zone "Channel 1"                                             |
+|       Linear                                                  |
+|       90 LEDs                                                 |
+|                                                               |
+|  Zone "Channel 2"                                             |
+|       Linear                                                  |
+|       90 LEDs                                                 |
+|                                                               |
+|  Zone "Channel 3"                                             |
+|       Linear                                                  |
+|       90 LEDs                                                 |
+\*-------------------------------------------------------------*/
+static const razer_zone chromawirelessargb_zone_1 =
+{
+    "Channel 1",
+    ZONE_TYPE_LINEAR,
+    1,
+    90
+};
+
+static const razer_zone chromawirelessargb_zone_2 =
+{
+    "Channel 2",
+    ZONE_TYPE_LINEAR,
+    1,
+    90
+};
+
+static const razer_zone chromawirelessargb_zone_3 =
+{
+    "Channel 3",
+    ZONE_TYPE_LINEAR,
+    1,
+    90
+};
+
+static const razer_device chromawirelessargb_device =
+{
+    "Razer Chroma Wireless ARGB Controller",
+    RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID,
+    DEVICE_TYPE_LEDSTRIP,
+    RAZER_MATRIX_TYPE_EXTENDED_ARGB,
+    0x1F,
+    RAZER_LED_ID_BACKLIGHT,
+    3,
+    90,
+    {
+        &chromawirelessargb_zone_1,
+        &chromawirelessargb_zone_2,
+        &chromawirelessargb_zone_3,
+        NULL,
+        NULL,
+        NULL
+    },
+    NULL
+};
+
+/*-------------------------------------------------------------*\
 |  Razer Chroma HDK                                             |
 |                                                               |
 |  Zone "LED Strip"                                             |
@@ -10067,6 +10127,7 @@ const razer_device* razer_device_list[] =
     &mouse_bungee_device,
     &charging_pad_chroma_device,
     &chromaargb_device,
+    &chromawirelessargb_device,
     &chromahdk_device,
     &chroma_pc_case_lighting_kit_device,
     &core_device,

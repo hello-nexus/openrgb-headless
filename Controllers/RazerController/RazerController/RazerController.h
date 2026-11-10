@@ -250,6 +250,8 @@ PACK(struct razer_report
 
 /*---------------------------------------------------------*\
 | Razer ARGB Report Type (taken from OpenRazer)             |
+|   Sized for the 381-byte wireless controller report, the  |
+|   wired controller sends only the first 321 bytes         |
 \*---------------------------------------------------------*/
 PACK(struct razer_argb_report
 {
@@ -259,7 +261,7 @@ PACK(struct razer_argb_report
     unsigned char channel_2;
     unsigned char pad;
     unsigned char last_idx;
-    unsigned char color_data[315];
+    unsigned char color_data[375];
 });
 
 class RazerController
@@ -313,6 +315,7 @@ private:
     hid_device*             dev;
     hid_device*             dev_argb;
     unsigned short          dev_pid;
+    size_t                  argb_report_size;
 
     /*---------------------------------------------------------*\
     | Device-specific protocol settings                         |

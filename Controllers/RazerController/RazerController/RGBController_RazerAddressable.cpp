@@ -236,12 +236,19 @@ void RGBController_RazerAddressable::DeviceConfigureZone(int zone_idx)
 {
     if((size_t)zone_idx < zones.size())
     {
-        controller->SetAddressableZoneSizes(zones[0].leds_count,
-                                            zones[1].leds_count,
-                                            zones[2].leds_count,
-                                            zones[3].leds_count,
-                                            zones[4].leds_count,
-                                            zones[5].leds_count);
+        /*---------------------------------------------------------*\
+        | The wireless controller never receives a zone size report |
+        | from Synapse, it always gets full 90-LED channel frames    |
+        \*---------------------------------------------------------*/
+        if(device_list[controller->GetDeviceIndex()]->pid != RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
+        {
+            controller->SetAddressableZoneSizes(zones[0].leds_count,
+                                                zones[1].leds_count,
+                                                zones[2].leds_count,
+                                                zones[3].leds_count,
+                                                zones[4].leds_count,
+                                                zones[5].leds_count);
+        }
 
         SetupZones();
     }
@@ -249,11 +256,12 @@ void RGBController_RazerAddressable::DeviceConfigureZone(int zone_idx)
 
 void RGBController_RazerAddressable::DeviceUpdateLEDs()
 {
-    RGBColor    colors_buf[80 * 6];
+    unsigned int    zone_stride = device_list[controller->GetDeviceIndex()]->cols;
+    RGBColor        colors_buf[90 * 6];
 
     for(unsigned int zone_id = 0; zone_id < zones.size(); zone_id++)
     {
-        memcpy(&colors_buf[(80 * zone_id)], zones[zone_id].colors, sizeof(RGBColor) * zones[zone_id].leds_count);
+        memcpy(&colors_buf[(zone_stride * zone_id)], zones[zone_id].colors, sizeof(RGBColor) * zones[zone_id].leds_count);
     }
 
     controller->SetLEDs(&colors_buf[0]);
