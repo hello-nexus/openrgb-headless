@@ -34,6 +34,16 @@ bool TestForGigabyteRGBFusion2GPUController(i2c_smbus_interface* bus, unsigned c
 
     res = bus->i2c_write_block(address, write_sz, data_pkt);
 
+    /*-----------------------------------------------------*\
+    | Accepting on the read alone after a failed probe      |
+    | write attached devices whose every later write failed.|
+    \*-----------------------------------------------------*/
+    if(res < 0)
+    {
+        LOG_DEBUG("[%s] probe write at address 0x%02X failed (%d)", GIGABYTEGPU_CONTROLLER_NAME2, address, res);
+        return(false);
+    }
+
     pass = true;
 
     pktsz = read_sz;

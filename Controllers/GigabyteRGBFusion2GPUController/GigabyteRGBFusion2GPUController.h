@@ -78,4 +78,8 @@ private:
     i2c_smbus_interface*    bus;
     rgb_fusion_dev_id       dev;
     std::string             name;
+    int                     write_failures;
+    bool                    writes_disabled;
+
+    void            WriteBlock(uint8_t* data, int size);
 };

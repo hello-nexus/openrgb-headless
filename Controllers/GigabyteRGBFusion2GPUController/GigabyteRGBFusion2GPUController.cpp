@@ -14,11 +14,21 @@
 
 using namespace std::chrono_literals;
 
+/*---------------------------------------------------------*\
+| A controller that fails this many writes in a row is      |
+| gone for the session; rewriting it every frame floods the |
+| GPU I2C bus and has coincided with driver TDRs.           |
+\*---------------------------------------------------------*/
+#define RGB_FUSION2_GPU_MAX_WRITE_FAILURES  50
+
 RGBFusion2GPUController::RGBFusion2GPUController(i2c_smbus_interface* bus, rgb_fusion_dev_id dev, std::string dev_name)
 {
     this->bus   = bus;
     this->dev   = dev;
     this->name  = dev_name;
+
+    write_failures  = 0;
+    writes_disabled = false;
 }
 
 RGBFusion2GPUController::~RGBFusion2GPUController()
@@ -41,10 +51,31 @@ std::string RGBFusion2GPUController::GetDeviceName()
     return(name);
 }
 
+void RGBFusion2GPUController::WriteBlock(uint8_t* data, int size)
+{
+    if(writes_disabled)
+    {
+        return;
+    }
+
+    if(bus->i2c_write_block(dev, size, data) < 0)
+    {
+        if(++write_failures >= RGB_FUSION2_GPU_MAX_WRITE_FAILURES)
+        {
+            writes_disabled = true;
+            LOG_WARNING("[%s] %d consecutive I2C writes failed at address 0x%02X, writes disabled until restart", name.c_str(), write_failures, dev);
+        }
+    }
+    else
+    {
+        write_failures = 0;
+    }
+}
+
 void RGBFusion2GPUController::SaveConfig()
 {
     uint8_t data_pkt[8] = { 0xAA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-    bus->i2c_write_block(dev, sizeof(data_pkt), data_pkt);
+    WriteBlock(data_pkt, sizeof(data_pkt));
 }
 
 void RGBFusion2GPUController::SetMode(uint8_t zone, uint8_t mode, fusion2_config zone_config, uint8_t mystery_flag)
@@ -55,7 +86,7 @@ void RGBFusion2GPUController::SetMode(uint8_t zone, uint8_t mode, fusion2_config
     }
 
     uint8_t zone_pkt[8] = { RGB_FUSION2_GPU_REG_MODE, mode, zone_config.speed, zone_config.brightness, mystery_flag, (uint8_t)(zone + 1), 0x00, 0x00 };
-    bus->i2c_write_block(dev, sizeof(zone_pkt), zone_pkt);
+    WriteBlock(zone_pkt, sizeof(zone_pkt));
 
     uint8_t zone_pkt2[8] = { 0 };
     switch(zone)
@@ -86,7 +117,7 @@ void RGBFusion2GPUController::SetMode(uint8_t zone, uint8_t mode, fusion2_config
             zone_pkt2[4] = (uint8_t)(zone + 1);
             break;
     }
-    bus->i2c_write_block(dev, sizeof(zone_pkt2), zone_pkt2);
+    WriteBlock(zone_pkt2, sizeof(zone_pkt2));
 }
 
 void RGBFusion2GPUController::SetZone(uint8_t zone, uint8_t mode, fusion2_config zone_config)
@@ -112,7 +143,7 @@ void RGBFusion2GPUController::SetZone(uint8_t zone, uint8_t mode, fusion2_config
         case RGB_FUSION2_GPU_MODE_COLOR_CYCLE:
             {
                 uint8_t zone_pkt[8] = { RGB_FUSION2_GPU_REG_MODE, mode, zone_config.speed, zone_config.brightness, mystery_flag, (uint8_t)(zone + 1), 0x00, 0x00 };
-                bus->i2c_write_block(dev, sizeof(zone_pkt), zone_pkt);
+                WriteBlock(zone_pkt, sizeof(zone_pkt));
             }
             break;
 
@@ -145,17 +176,17 @@ void RGBFusion2GPUController::SetZone(uint8_t zone, uint8_t mode, fusion2_config
             {
                 mystery_flag = zone_config.numberOfColors;
                 uint8_t zone_pkt[8] = { RGB_FUSION2_GPU_REG_MODE, mode, zone_config.speed, zone_config.brightness, mystery_flag, (uint8_t)(zone + 1), 0x00, 0x00 };
-                bus->i2c_write_block(dev, sizeof(zone_pkt), zone_pkt);
+                WriteBlock(zone_pkt, sizeof(zone_pkt));
 
                 uint8_t bank = (0xB0 + (zone * 4));
                 uint8_t zone_pktA[8] = { (uint8_t)bank, mode, (uint8_t)RGBGetRValue(zone_config.colors[0]), (uint8_t)RGBGetGValue(zone_config.colors[0]), (uint8_t)RGBGetBValue(zone_config.colors[0]), (uint8_t)RGBGetRValue(zone_config.colors[1]), (uint8_t)RGBGetGValue(zone_config.colors[1]), (uint8_t)RGBGetBValue(zone_config.colors[1]) };
-                bus->i2c_write_block(dev, sizeof(zone_pktA), zone_pktA);
+                WriteBlock(zone_pktA, sizeof(zone_pktA));
                 uint8_t zone_pktB[8] = { (uint8_t)(bank + 1), mode, (uint8_t)RGBGetRValue(zone_config.colors[2]), (uint8_t)RGBGetGValue(zone_config.colors[2]), (uint8_t)RGBGetBValue(zone_config.colors[2]), (uint8_t)RGBGetRValue(zone_config.colors[3]), (uint8_t)RGBGetGValue(zone_config.colors[3]), (uint8_t)RGBGetBValue(zone_config.colors[3]) };
-                bus->i2c_write_block(dev, sizeof(zone_pktB), zone_pktB);
+                WriteBlock(zone_pktB, sizeof(zone_pktB));
                 uint8_t zone_pktC[8] = { (uint8_t)(bank + 2), mode, (uint8_t)RGBGetRValue(zone_config.colors[4]), (uint8_t)RGBGetGValue(zone_config.colors[4]), (uint8_t)RGBGetBValue(zone_config.colors[4]), (uint8_t)RGBGetRValue(zone_config.colors[5]), (uint8_t)RGBGetGValue(zone_config.colors[5]), (uint8_t)RGBGetBValue(zone_config.colors[5]) };
-                bus->i2c_write_block(dev, sizeof(zone_pktC), zone_pktC);
+                WriteBlock(zone_pktC, sizeof(zone_pktC));
                 uint8_t zone_pktD[8] = { (uint8_t)(bank + 3), mode, (uint8_t)RGBGetRValue(zone_config.colors[6]), (uint8_t)RGBGetGValue(zone_config.colors[6]), (uint8_t)RGBGetBValue(zone_config.colors[6]), (uint8_t)RGBGetRValue(zone_config.colors[7]), (uint8_t)RGBGetGValue(zone_config.colors[7]), (uint8_t)RGBGetBValue(zone_config.colors[7]) };
-                bus->i2c_write_block(dev, sizeof(zone_pktD), zone_pktD);
+                WriteBlock(zone_pktD, sizeof(zone_pktD));
             }
             break;
 
@@ -163,17 +194,17 @@ void RGBFusion2GPUController::SetZone(uint8_t zone, uint8_t mode, fusion2_config
             {
                 mystery_flag = 0x08;
                 uint8_t zone_pkt[8] = { RGB_FUSION2_GPU_REG_MODE, mode, zone_config.speed, zone_config.brightness, mystery_flag, (uint8_t)(zone + 1), 0x00, 0x00 };
-                bus->i2c_write_block(dev, sizeof(zone_pkt), zone_pkt);
+                WriteBlock(zone_pkt, sizeof(zone_pkt));
 
                 uint8_t bank = (0xB0 + (zone * 4));
                 uint8_t zone_pktA[8] = { (uint8_t)bank, mode, (uint8_t)RGBGetRValue(zone_config.colors[0]), (uint8_t)RGBGetGValue(zone_config.colors[0]), (uint8_t)RGBGetBValue(zone_config.colors[0]), (uint8_t)RGBGetRValue(zone_config.colors[1]), (uint8_t)RGBGetGValue(zone_config.colors[1]), (uint8_t)RGBGetBValue(zone_config.colors[1]) };
-                bus->i2c_write_block(dev, sizeof(zone_pktA), zone_pktA);
+                WriteBlock(zone_pktA, sizeof(zone_pktA));
                 uint8_t zone_pktB[8] = { (uint8_t)(bank + 1), mode, (uint8_t)RGBGetRValue(zone_config.colors[2]), (uint8_t)RGBGetGValue(zone_config.colors[2]), (uint8_t)RGBGetBValue(zone_config.colors[2]), (uint8_t)RGBGetRValue(zone_config.colors[3]), (uint8_t)RGBGetGValue(zone_config.colors[3]), (uint8_t)RGBGetBValue(zone_config.colors[3]) };
-                bus->i2c_write_block(dev, sizeof(zone_pktB), zone_pktB);
+                WriteBlock(zone_pktB, sizeof(zone_pktB));
                 uint8_t zone_pktC[8] = { (uint8_t)(bank + 2), mode, (uint8_t)RGBGetRValue(zone_config.colors[4]), (uint8_t)RGBGetGValue(zone_config.colors[4]), (uint8_t)RGBGetBValue(zone_config.colors[4]), (uint8_t)RGBGetRValue(zone_config.colors[5]), (uint8_t)RGBGetGValue(zone_config.colors[5]), (uint8_t)RGBGetBValue(zone_config.colors[5]) };
-                bus->i2c_write_block(dev, sizeof(zone_pktC), zone_pktC);
+                WriteBlock(zone_pktC, sizeof(zone_pktC));
                 uint8_t zone_pktD[8] = { (uint8_t)(bank + 3), mode, (uint8_t)RGBGetRValue(zone_config.colors[6]), (uint8_t)RGBGetGValue(zone_config.colors[6]), (uint8_t)RGBGetBValue(zone_config.colors[6]), (uint8_t)RGBGetRValue(zone_config.colors[7]), (uint8_t)RGBGetGValue(zone_config.colors[7]), (uint8_t)RGBGetBValue(zone_config.colors[7]) };
-                bus->i2c_write_block(dev, sizeof(zone_pktD), zone_pktD);
+                WriteBlock(zone_pktD, sizeof(zone_pktD));
             }
             break;
 
