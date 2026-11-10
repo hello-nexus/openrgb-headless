@@ -3194,6 +3194,34 @@ static const razer_device huntsman_v3_pro_tkl_device =
 };
 
 /*-------------------------------------------------------------*\
+|  Razer Huntsman V3 Pro TKL 8KHz 1532:02D0                     |
+|                                                               |
+|  Zone "Keyboard"                                              |
+|       Matrix                                                  |
+|       6 Rows, 19 Columns                                      |
+\*-------------------------------------------------------------*/
+static const razer_device huntsman_v3_pro_tkl_8khz_device =
+{
+    "Razer Huntsman V3 Pro TKL 8KHz",
+    RAZER_HUNTSMAN_V3_PRO_TKL_8KHZ_PID,
+    DEVICE_TYPE_KEYBOARD,
+    RAZER_MATRIX_TYPE_EXTENDED,
+    0x3F,
+    RAZER_LED_ID_BACKLIGHT,
+    6,
+    19,
+    {
+        &huntsman_v3_pro_tkl_keyboard_zone,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL
+    },
+    &razer_huntsman_v3_pro_tkl_layout
+};
+
+/*-------------------------------------------------------------*\
 |  Razer Huntsman V3 HE Magnetic Mini 1532:02E4                 |
 |                                                               |
 |  Zone "Keyboard"                                              |
@@ -9881,6 +9909,7 @@ const razer_device* razer_device_list[] =
     &huntsman_v2_tkl_device,
     &huntsman_v3_pro_device,
     &huntsman_v3_pro_tkl_device,
+    &huntsman_v3_pro_tkl_8khz_device,
     &huntsman_v3_he_magnetic_mini_device,
     &ornata_chroma_device,
     &ornata_chroma_v2_device,
