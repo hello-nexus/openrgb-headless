@@ -9,6 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -132,7 +133,6 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
             case CORSAIR_K100_OPTICAL_V1_PID:
             case CORSAIR_K100_OPTICAL_V2_PID:
             case CORSAIR_K100_MXRED_PID:
-                pkt_sze = CORSAIR_V2_WRITE_SIZE;
                 LOG_DEBUG("[%s] Lighting Endpoint pinned to %02X for K100", device_name.c_str(), light_ctrl);
                 break;
 
@@ -429,7 +429,23 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
 
     memcpy(&buffer[offset1], &data[0], copy_bytes);
 
-    hid_write(dev, buffer, pkt_sze);
+    /*---------------------------------------------------------*\
+    | A device whose output report is shorter than the size     |
+    |   read from the GET reply rejects the write. Retry once   |
+    |   so a transient error does not downgrade the device,     |
+    |   then fall back to the default write size for good and   |
+    |   rebuild packet 1                                        |
+    \*---------------------------------------------------------*/
+    if(hid_write(dev, buffer, pkt_sze) < 0 && pkt_sze > CORSAIR_V2_WRITE_SIZE
+       && hid_write(dev, buffer, pkt_sze) < 0)
+    {
+        LOG_WARNING("[%s] %d byte write rejected twice, using %d byte packets", device_name.c_str(), pkt_sze, CORSAIR_V2_WRITE_SIZE);
+        pkt_sze             = CORSAIR_V2_WRITE_SIZE;
+        copy_bytes          = std::min<uint16_t>(remaining, pkt_sze - offset1);
+        memset(&buffer[offset1], 0, sizeof(buffer) - offset1);
+        memcpy(&buffer[offset1], &data[0], copy_bytes);
+        hid_write(dev, buffer, pkt_sze);
+    }
 
     if(!skip_reads)
     {
