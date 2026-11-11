@@ -25,7 +25,6 @@ typedef unsigned char msi_gpu_dev_id;
 #define MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS   220
 #define MSI_GPU_V2_WRITE_SETTLE_MS          20
 #define MSI_GPU_V2_DIRECT_WRITE_SETTLE_MS   10
-#define MSI_GPU_V2_DIRECT_RETRY_MS          4
 
 enum
 {

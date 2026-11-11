@@ -2230,6 +2230,16 @@ void RGBController::DeviceCallThreadFunction()
                 DeviceUpdateLEDs();
                 DeviceMutex.unlock();
                 AccessMutex.unlock_shared();
+
+                /*-----------------------------------------*\
+                | A device that re-armed its own update to  |
+                | retry later pauses here, outside the      |
+                | locks, so writers get in between retries  |
+                \*-----------------------------------------*/
+                if(CallFlag_UpdateLEDs.load())
+                {
+                    std::this_thread::sleep_for(1ms);
+                }
             }
             else
             {
