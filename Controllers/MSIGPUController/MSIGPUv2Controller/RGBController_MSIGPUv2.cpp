@@ -526,15 +526,20 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool save
     /*---------------------------------------------------------*\
     | An RTX 50 card left in per-LED stream mode ignores the    |
     | register path: leave the stream and set the control       |
-    | register first. Once per mode change, and again on the    |
-    | next update if a write failed                             |
+    | register first. Once per mode change, and on the next     |
+    | few updates if a write failed, so a card that keeps       |
+    | refusing the write does not slow every Direct frame       |
     \*---------------------------------------------------------*/
     if(rtx50 && stream_exit_pending.exchange(false))
     {
         bool exit_ok    = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_PER_LED_ENABLE, 0x01);
         bool control_ok = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_CONTROL, MSI_GPU_V2_CONTROL_NON_RGBMODE);
 
-        if(!exit_ok || !control_ok)
+        if(exit_ok && control_ok)
+        {
+            stream_exit_failures = 0;
+        }
+        else if(++stream_exit_failures < 3)
         {
             stream_exit_pending = true;
         }

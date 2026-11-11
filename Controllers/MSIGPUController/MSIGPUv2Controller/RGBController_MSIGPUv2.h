@@ -42,6 +42,7 @@ private:
     bool                per_led_protocol    = false;
     bool                rtx50               = false;
     std::atomic<bool>   stream_exit_pending{true};
+    int                 stream_exit_failures = 0;
     std::atomic<bool>   first_apply_logged{false};
 
     /*-----------------------------------------------------*\
