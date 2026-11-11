@@ -66,12 +66,10 @@ void superio_enter(int ioreg)
 
     const SIZE_T    in_size         = 1;
     ULONG64         in[in_size]     = {(ULONG64)in_reg};
-    const SIZE_T    out_size        = 0;
-    ULONG64         out[1];
 
-    status = pawnio_execute(pawnio_handle, "ioctl_select_slot", in, in_size, out, out_size, &return_size);
+    status = pawnio_execute(pawnio_handle, "ioctl_select_slot", in, in_size, NULL, 0, &return_size);
 
-    if(status != S_OK || out[0] == 0)
+    if(status != S_OK)
     {
         LOG_ERROR("[superio] LpcIO ioctl_select_slot failed with status %d", status);
         return;

@@ -614,6 +614,7 @@ bool RazerController::SupportsWave()
         case RAZER_HUNTSMAN_V2_PID:
         case RAZER_HUNTSMAN_V3_PRO_PID:
         case RAZER_HUNTSMAN_V3_PRO_TKL_WHITE_PID:
+        case RAZER_HUNTSMAN_V3_PRO_TKL_8KHZ_PID:
         case RAZER_ORBWEAVER_CHROMA_PID:
         case RAZER_TARTARUS_PRO_PID:
         case RAZER_TARTARUS_V2_PID:
