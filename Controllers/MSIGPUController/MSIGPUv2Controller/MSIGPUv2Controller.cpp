@@ -122,10 +122,49 @@ unsigned char MSIGPUv2Controller::MSIGPURegisterRead(unsigned char reg)
     return bus->i2c_smbus_read_byte_data(dev, reg);
 }
 
+/*---------------------------------------------------------*\
+| Logs the first failed writes with their bus status, so a  |
+| card that stops answering shows up without flooding       |
+\*---------------------------------------------------------*/
+void MSIGPUv2Controller::LogWrite(unsigned char reg, unsigned int len, unsigned char val, s32 status)
+{
+    if(status >= 0 || failures_logged >= MSI_GPU_V2_WRITE_FAILURES_LOGGED)
+    {
+        return;
+    }
+
+    failures_logged++;
+
+    if(len == 1)
+    {
+        LOG_WARNING("[MSI GPU v2] %s write reg 0x%02X = 0x%02X: status %d", name.c_str(), reg, val, (int)status);
+    }
+    else
+    {
+        LOG_WARNING("[MSI GPU v2] %s block write reg 0x%02X, %u bytes: status %d", name.c_str(), reg, len, (int)status);
+    }
+}
+
 void MSIGPUv2Controller::MSIGPURegisterWrite(unsigned char reg, unsigned char val)
 {
     bus->i2c_smbus_write_byte_data(dev, reg, val);
     std::this_thread::sleep_for(20ms);
+}
+
+bool MSIGPUv2Controller::MSIGPURegisterWriteLogged(unsigned char reg, unsigned char val)
+{
+    s32 result = bus->i2c_smbus_write_byte_data(dev, reg, val);
+    LogWrite(reg, 1, val, result);
+    std::this_thread::sleep_for(20ms);
+    return(result >= 0);
+}
+
+bool MSIGPUv2Controller::MSIGPUI2CBlockWrite(unsigned char reg, const unsigned char *val, unsigned char len)
+{
+    s32 result = bus->i2c_smbus_write_i2c_block_data(dev, reg, len, val);
+    LogWrite(reg, len, 0, result);
+    std::this_thread::sleep_for(20ms);
+    return(result >= 0);
 }
 
 void MSIGPUv2Controller::MSIGPUBlockWrite(unsigned char reg, unsigned char *val, unsigned char len)

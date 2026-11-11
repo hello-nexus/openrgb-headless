@@ -62,6 +62,11 @@
 #define INTEL_ARROW_LAKE_SMBUS_DEV                              0x7F23
 
 /*-----------------------------------------------------*\
+| Intel GPU Device IDs                                  |
+\*-----------------------------------------------------*/
+#define INTEL_ARC_B580_DEV                                      0xE20B
+
+/*-----------------------------------------------------*\
 | Nvidia Device IDs                                     |
 \*-----------------------------------------------------*/
 #define NVIDIA_GTX1050_DEV                                      0x1C81
@@ -320,6 +325,7 @@
 #define ASUS_TUF_RTX_4070TI_SUPER_16G_GAMING                    0x8958
 #define ASUS_TUF_RTX_4070TI_SUPER_O16G_GAMING                   0x8957
 #define ASUS_TUF_RTX_4070TI_SUPER_O16G_GAMING_WHITE             0x895B
+#define ASUS_TUF_RTX_4070TI_SUPER_O16G_GAMING_AD102             0x89B0
 #define ASUS_ROG_STRIX_RTX_4070TI_12G_GAMING                    0x88A6
 #define ASUS_ROG_STRIX_RTX_4070TI_O12G_GAMING                   0x88E5
 #define ASUS_ROG_STRIX_RTX_4070TI_O12G_GAMING_2                 0x88A7

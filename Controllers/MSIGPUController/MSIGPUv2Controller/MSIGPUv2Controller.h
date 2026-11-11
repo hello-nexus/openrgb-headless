@@ -22,6 +22,10 @@ typedef unsigned char msi_gpu_dev_id;
 #define MSI_GPU_V2_BRIGHTNESS_MIN           1
 #define MSI_GPU_V2_BRIGHTNESS_MAX           5
 #define MSI_GPU_V2_BRIGHTNESS_MULTI         20
+#define MSI_GPU_V2_PER_LED_MIN_INTERVAL_MS  33
+#define MSI_GPU_V2_DIRECT_REFRESH_MS        30000
+#define MSI_GPU_V2_WRITE_FAILURES_LOGGED    20
+#define MSI_GPU_V2_PER_LED_SLOTS            6
 
 enum
 {
@@ -37,6 +41,9 @@ enum
     MSI_GPU_V2_REG_MODE                     = 0x22,     /* MSI GPU Mode Selection Register */
     MSI_GPU_V2_REG_SAVE                     = 0x3F,     /* MSI GPU Commit Changes Register */
     MSI_GPU_V2_REG_CONTROL                  = 0x46,     /* MSI GPU Direction Register      */
+    MSI_GPU_V2_REG_PER_LED_ENABLE           = 0x06,     /* RTX 50 per-LED mode, 0 = on     */
+    MSI_GPU_V2_REG_PER_LED_START            = 0x20,     /* RTX 50 per-LED setup            */
+    MSI_GPU_V2_REG_PER_LED_COLORS           = 0x04,     /* RTX 50 per-LED color block      */
 };
 
 enum
@@ -96,10 +103,15 @@ public:
 
     unsigned char MSIGPURegisterRead(unsigned char reg);
     void          MSIGPURegisterWrite(unsigned char reg, unsigned char val);
+    bool          MSIGPURegisterWriteLogged(unsigned char reg, unsigned char val);
+    bool          MSIGPUI2CBlockWrite(unsigned char reg, const unsigned char *val, unsigned char len);
     void          MSIGPUBlockWrite(unsigned char reg,unsigned char *val, unsigned char len);
 
 private:
     i2c_smbus_interface *   bus;
     msi_gpu_dev_id          dev;
     std::string             name;
+    unsigned int            failures_logged = 0;
+
+    void          LogWrite(unsigned char reg, unsigned int len, unsigned char val, s32 status);
 };
