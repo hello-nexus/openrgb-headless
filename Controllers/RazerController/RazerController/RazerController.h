@@ -264,6 +264,16 @@ PACK(struct razer_argb_report
     unsigned char color_data[375];
 });
 
+/*---------------------------------------------------------*\
+| Outcome of a wireless ARGB controller command             |
+\*---------------------------------------------------------*/
+enum razer_wireless_argb_reply
+{
+    RAZER_WIRELESS_ARGB_NO_REPLY,
+    RAZER_WIRELESS_ARGB_FAILED,
+    RAZER_WIRELESS_ARGB_SUCCESS,
+};
+
 class RazerController
 {
 public:
@@ -371,11 +381,17 @@ private:
     std::chrono::steady_clock::time_point argb_last_frame_time;
 
     /*---------------------------------------------------------*\
-    | Wireless ARGB controller rolling transaction ID, and the  |
-    | earliest time a failed custom frame effect is retried     |
+    | Wireless ARGB controller rolling transaction ID, the lock |
+    | that keeps a command and its reply together, the strings  |
+    | read once at setup, and the custom frame effect retry     |
+    | state                                                     |
     \*---------------------------------------------------------*/
     std::atomic<unsigned int> argb_transaction_id;
+    std::recursive_mutex    argb_query_mutex;
+    std::string             argb_firmware_string;
+    std::string             argb_serial_string;
     std::chrono::steady_clock::time_point argb_custom_frame_retry_time;
+    unsigned int            argb_mode_sends;
 
     /*---------------------------------------------------------*\
     | Private functions based on OpenRazer                      |
@@ -418,7 +434,7 @@ private:
 
     unsigned char           razer_get_device_mode();
     std::string             razer_get_firmware();
-    std::string             razer_get_serial();
+    std::string             razer_get_serial(bool* replied = nullptr);
     void                    razer_get_keyboard_info(unsigned char* layout, unsigned char* variant);
 
     void                    razer_set_brightness(unsigned char brightness);
@@ -433,9 +449,11 @@ private:
     void                    SetLEDsHuntsmanV2Analog(RGBColor* colors);
     void                    SetLEDsWirelessARGB(RGBColor* colors);
     bool                    razer_get_wireless_argb_zone_sizes();
-    bool                    razer_wireless_argb_command(razer_report* report, razer_report* response_report);
-    bool                    razer_wireless_argb_set_software_mode();
+    unsigned char           razer_wireless_argb_next_transaction_id();
+    razer_wireless_argb_reply razer_wireless_argb_command(razer_report* report, razer_report* response_report, unsigned int attempts);
+    razer_wireless_argb_reply razer_wireless_argb_set_software_mode();
     void                    razer_wireless_argb_init();
+    void                    razer_wireless_argb_apply_custom_frame();
     void                    razer_set_mode_none();
     void                    razer_set_mode_spectrum_cycle();
     void                    razer_set_mode_static(unsigned char red, unsigned char grn, unsigned char blu);
