@@ -12,6 +12,10 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 
 #include "pci_ids.h"
 #include "RGBController.h"
@@ -35,7 +39,33 @@ public:
 private:
     MSIGPUv2Controller* controller;
     bool                rainbow_variants;
+    bool                per_led_protocol    = false;
     std::atomic<bool>   first_apply_logged{false};
 
+    /*-----------------------------------------------------*\
+    | Per-LED Direct frames go to a worker that writes the  |
+    | latest one, at most once per minimum interval.        |
+    | write_mutex serializes its bus writes with the mode   |
+    | writes; direct_mutex guards the fields below it. A    |
+    | non-Direct mode bumps direct_generation so a frame    |
+    | taken before it is never written after it             |
+    \*-----------------------------------------------------*/
+    std::mutex                              write_mutex;
+    std::mutex                              direct_mutex;
+    std::condition_variable                 direct_cv;
+    std::thread                             direct_thread;
+    bool                                    direct_running      = true;
+    bool                                    direct_pending      = false;
+    bool                                    direct_primed       = false;
+    unsigned int                            direct_generation   = 0;
+    unsigned int                            direct_reprime      = 0;
+    RGBColor                                pending_colors[MSI_GPU_V2_PER_LED_SLOTS]    = {};
+    unsigned char                           pending_brightness  = 0;
+    RGBColor                                applied_colors[MSI_GPU_V2_PER_LED_SLOTS]    = {};
+    unsigned char                           applied_brightness  = 0;
+    std::chrono::steady_clock::time_point   direct_write_time;
+
     void       DeviceUpdateAll(const mode& current_mode);
+    void       QueueDirect(bool reprime);
+    void       DirectThreadFunction();
 };
