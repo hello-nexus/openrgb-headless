@@ -9,6 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
 #include <array>
 #include <thread>
 #include "RGBController_MSIGPUv2.h"
@@ -36,6 +37,12 @@ RGBController_MSIGPUv2::RGBController_MSIGPUv2(MSIGPUv2Controller * controller_p
     type                            = DEVICE_TYPE_GPU;
     description                     = "MSI GPU V2 Device";
     location                        = controller->GetDeviceLocation();
+
+    /*---------------------------------------------------------*    | A Direct frame inside the minimum interval re-arms the    |
+    | update from DeviceUpdateLEDs, which only survives when    |
+    | the device thread clears the flag before the call         |
+    \*---------------------------------------------------------*/
+    flags                           |= CONTROLLER_FLAG_RESET_BEFORE_UPDATE;
 
     mode Off;
     Off.name                        = "Off";
@@ -464,13 +471,14 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
     | brightness registers are written only by the full         |
     | sequence below. The card shows a color only once writes   |
     | go quiet, so sequences start at least the minimum         |
-    | interval apart. This runs on the controller's device      |
-    | thread, so a frame inside the interval waits out the      |
-    | remainder and is then written; the server coalesces       |
-    | frames that arrive meanwhile, so the next one written is  |
-    | the latest color and the last color is never dropped. Any |
-    | failed write unprimes, so the next frame redoes the full  |
-    | sequence rather than leaving a partial color staged       |
+    | interval apart, measured start to start. A frame inside   |
+    | the interval is not written: after a short pause it       |
+    | re-arms the update and returns, so the device thread      |
+    | retries without holding the controller locks and each     |
+    | retry reads the newest color; the last color is written   |
+    | once the interval elapses. Any failed write unprimes, so  |
+    | the next frame redoes the full sequence rather than       |
+    | leaving a partial color staged                            |
     \*---------------------------------------------------------*/
     if(allow_color_only
     && current_mode.value == MSI_GPU_V2_MODE_STATIC
@@ -488,7 +496,9 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
 
         if(since < std::chrono::milliseconds(MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS))
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS) - since);
+            std::this_thread::sleep_for(std::min<std::chrono::steady_clock::duration>(std::chrono::milliseconds(MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS) - since, std::chrono::milliseconds(MSI_GPU_V2_DIRECT_RETRY_MS)));
+            UpdateLEDsInternal();
+            return;
         }
 
         direct_write_time   = std::chrono::steady_clock::now();
