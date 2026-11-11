@@ -114,7 +114,7 @@ protected:
     std::string                     device_name;
     uint8_t                         light_ctrl          = CORSAIR_V2_LIGHT_CTRL2;
     uint8_t                         light_ctrl_reg      = 0x5F;
-    uint16_t                        pkt_size            = CORSAIR_V2_PACKET_SIZE;
+    uint16_t                        pkt_size            = CORSAIR_V2_WRITE_SIZE;
 
 private:
     void                            ClearPacketBuffer();
