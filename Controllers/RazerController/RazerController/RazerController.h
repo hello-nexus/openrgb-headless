@@ -371,6 +371,13 @@ private:
     std::chrono::steady_clock::time_point argb_last_frame_time;
 
     /*---------------------------------------------------------*\
+    | Wireless ARGB controller rolling transaction ID, and the  |
+    | earliest time a failed custom frame effect is retried     |
+    \*---------------------------------------------------------*/
+    std::atomic<unsigned int> argb_transaction_id;
+    std::chrono::steady_clock::time_point argb_custom_frame_retry_time;
+
+    /*---------------------------------------------------------*\
     | Private functions based on OpenRazer                      |
     \*---------------------------------------------------------*/
     unsigned char           razer_calculate_crc(razer_report* report);
@@ -425,7 +432,10 @@ private:
     void                    razer_set_mode_custom();
     void                    SetLEDsHuntsmanV2Analog(RGBColor* colors);
     void                    SetLEDsWirelessARGB(RGBColor* colors);
-    void                    razer_get_wireless_argb_zone_sizes();
+    bool                    razer_get_wireless_argb_zone_sizes();
+    bool                    razer_wireless_argb_command(razer_report* report, razer_report* response_report);
+    bool                    razer_wireless_argb_set_software_mode();
+    void                    razer_wireless_argb_init();
     void                    razer_set_mode_none();
     void                    razer_set_mode_spectrum_cycle();
     void                    razer_set_mode_static(unsigned char red, unsigned char grn, unsigned char blu);

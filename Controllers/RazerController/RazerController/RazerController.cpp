@@ -32,6 +32,8 @@ RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_ha
     memset(argb_zone_sizes, 0, sizeof(argb_zone_sizes));
     memset(argb_device_zone_sizes, 0, sizeof(argb_device_zone_sizes));
     argb_last_frames_valid = false;
+    argb_transaction_id    = 0x00;
+    argb_custom_frame_retry_time = std::chrono::steady_clock::time_point();
 
     /*-----------------------------------------------------------------*\
     | Loop through all known devices to look for a name match           |
@@ -102,14 +104,12 @@ RazerController::RazerController(hid_device* dev_handle, hid_device* dev_argb_ha
             break;
 
         /*-------------------------------------------------------------*\
-        | Synapse switches the wireless ARGB controller to software     |
-        | mode and reads the channel sizes (0x0F:0x88) before it        |
-        | streams frames.  The custom frame effect (0x0F:0x02 effect    |
-        | 0x08) is sent with the first frame, see SetLEDsWirelessARGB   |
+        | The wireless ARGB controller gets Synapse's setup sequence on |
+        | every open.  The custom frame effect (0x0F:0x02 effect 0x08)  |
+        | is sent with the first frame, see SetLEDsWirelessARGB         |
         \*-------------------------------------------------------------*/
         case RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID:
-            razer_set_device_mode(RAZER_DEVICE_MODE_SOFTWARE);
-            razer_get_wireless_argb_zone_sizes();
+            razer_wireless_argb_init();
             break;
     }
 
@@ -257,7 +257,8 @@ void RazerController::SetAddressableZoneSizes(unsigned char zone_1_size, unsigne
 
         argb_last_frames_valid = false;
 
-        razer_usb_send(&report);
+        razer_report response_report = razer_create_response();
+        razer_wireless_argb_command(&report, &response_report);
         return;
     }
 
@@ -405,13 +406,25 @@ void RazerController::SetLEDsWirelessARGB(RGBColor* colors)
         max_size = (unsigned char)matrix_cols;
     }
 
-    if(!custom_frame_applied)
+    /*-----------------------------------------------------------------*\
+    | Synapse checks for software mode (0x00:0x84) before entering the  |
+    | custom frame effect, and resends the effect if it fails.  A       |
+    | failed attempt is retried every 2 s while frames keep coming      |
+    \*-----------------------------------------------------------------*/
+    if(!custom_frame_applied && (std::chrono::steady_clock::now() >= argb_custom_frame_retry_time))
     {
-        razer_report report         = razer_create_report(0x0F, 0x02, 0x06);
-        report.arguments[2]         = 0x08;
-        razer_usb_send(&report);
+        razer_report report          = razer_create_report(0x0F, 0x02, 0x06);
+        razer_report response_report = razer_create_response();
+        report.arguments[2]          = 0x08;
 
-        custom_frame_applied        = true;
+        razer_wireless_argb_set_software_mode();
+
+        custom_frame_applied         = razer_wireless_argb_command(&report, &response_report);
+
+        if(!custom_frame_applied)
+        {
+            argb_custom_frame_retry_time = std::chrono::steady_clock::now() + 2s;
+        }
     }
 
     for(unsigned int row = 0; row < 3; row++)
@@ -432,7 +445,7 @@ void RazerController::SetLEDsWirelessARGB(RGBColor* colors)
     argb_last_frame_time            = std::chrono::steady_clock::now();
 }
 
-void RazerController::razer_get_wireless_argb_zone_sizes()
+bool RazerController::razer_get_wireless_argb_zone_sizes()
 {
     /*-----------------------------------------------------------------*\
     | The reply holds the channel count, then a channel LED ID and size |
@@ -442,6 +455,8 @@ void RazerController::razer_get_wireless_argb_zone_sizes()
     struct razer_report report          = razer_create_report(0x0F, 0x88, 0x07);
     struct razer_report response_report = razer_create_response();
 
+    bool                read_ok         = false;
+
     report.arguments[0]                 = 0x03;
 
     for(unsigned int channel = 0; channel < 3; channel++)
@@ -449,10 +464,11 @@ void RazerController::razer_get_wireless_argb_zone_sizes()
         argb_device_zone_sizes[channel] = 120;
     }
 
-    if(razer_usb_query(&report, &response_report)
-    && (response_report.status == RAZER_STATUS_SUCCESS)
+    if(razer_wireless_argb_command(&report, &response_report)
     && (response_report.arguments[0] == 0x03))
     {
+        read_ok = true;
+
         for(unsigned int channel = 0; channel < 3; channel++)
         {
             unsigned char led_id = response_report.arguments[1 + (channel * 2)];
@@ -467,10 +483,164 @@ void RazerController::razer_get_wireless_argb_zone_sizes()
 
                 argb_device_zone_sizes[channel] = size;
             }
+            else
+            {
+                read_ok = false;
+            }
         }
     }
 
     memcpy(argb_zone_sizes, argb_device_zone_sizes, sizeof(argb_zone_sizes));
+
+    return(read_ok);
+}
+
+bool RazerController::razer_wireless_argb_command(razer_report* report, razer_report* response_report)
+{
+    /*-----------------------------------------------------------------*\
+    | The dongle relays each command to the controller and replies      |
+    | about 30 ms later.  Synapse waits for every reply and resends a   |
+    | command that comes back failed (0x03)                             |
+    \*-----------------------------------------------------------------*/
+    for(unsigned int attempt = 0; attempt < 3; attempt++)
+    {
+        if(!razer_usb_query(report, response_report))
+        {
+            return(false);
+        }
+
+        if(response_report->status == RAZER_STATUS_SUCCESS)
+        {
+            return(true);
+        }
+    }
+
+    return(false);
+}
+
+bool RazerController::razer_wireless_argb_set_software_mode()
+{
+    /*-----------------------------------------------------------------*\
+    | The reply to 0x00:0x04 comes back with transaction ID 0 and one   |
+    | argument, so it never matches the command.  Synapse sends it      |
+    | about 20 times, 30 ms apart; resend it until 0x00:0x84 reads back |
+    | software mode, and stop if 0x00:0x84 gets no reply at all         |
+    \*-----------------------------------------------------------------*/
+    for(unsigned int attempt = 0; attempt <= 20; attempt++)
+    {
+        razer_report report          = razer_create_report(0x00, RAZER_COMMAND_ID_GET_DEVICE_MODE, 0x02);
+        razer_report response_report = razer_create_response();
+
+        if(!razer_wireless_argb_command(&report, &response_report))
+        {
+            break;
+        }
+
+        if(response_report.arguments[0] == RAZER_DEVICE_MODE_SOFTWARE)
+        {
+            return(true);
+        }
+
+        if(attempt == 20)
+        {
+            break;
+        }
+
+        report                       = razer_create_device_mode_report(RAZER_DEVICE_MODE_SOFTWARE, 0x00);
+        razer_usb_send(&report);
+        std::this_thread::sleep_for(30ms);
+    }
+
+    LOG_WARNING("[%s] Controller did not enter software mode", name.c_str());
+
+    return(false);
+}
+
+void RazerController::razer_wireless_argb_init()
+{
+    /*-----------------------------------------------------------------*\
+    | Synapse's setup sequence, in its order, from a USB capture.  It   |
+    | runs on every open (startup, replug, rescan).  The sizes read     |
+    | with 0x0F:0x88 go back unchanged, and only if they could be read  |
+    \*-----------------------------------------------------------------*/
+    static const unsigned char steps_before_sizes[][6] =
+    {
+        /* class, id,   size, arguments      */
+        {  0x00,  0xB7, 0x01, 0x00, 0x00, 0x00 },
+        {  0x0F,  0x02, 0x06, 0x01, 0x00, 0x03 },
+        {  0x00,  0x93, 0x04, 0x00, 0x00, 0x00 },
+        {  0x00,  0x87, 0x04, 0x00, 0x00, 0x00 },
+        {  0x0F,  0x02, 0x06, 0x01, 0x00, 0x03 },
+        {  0x07,  0x8E, 0x03, 0x00, 0x00, 0x00 },
+        {  0x00,  0xC4, 0x01, 0x00, 0x00, 0x00 },
+        {  0x00,  0xC7, 0x02, 0x00, 0x00, 0x00 },
+        {  0x00,  0x36, 0x01, 0x01, 0x00, 0x00 },
+    };
+
+    razer_report report;
+    razer_report response_report;
+
+    razer_get_firmware();
+    razer_get_serial();
+
+    report          = razer_create_report(0x00, 0x86, 0x03);
+    response_report = razer_create_response();
+    razer_wireless_argb_command(&report, &response_report);
+
+    razer_wireless_argb_set_software_mode();
+
+    for(unsigned int step = 0; step < (sizeof(steps_before_sizes) / sizeof(steps_before_sizes[0])); step++)
+    {
+        report              = razer_create_report(steps_before_sizes[step][0], steps_before_sizes[step][1], steps_before_sizes[step][2]);
+        response_report     = razer_create_response();
+        report.arguments[0] = steps_before_sizes[step][3];
+        report.arguments[1] = steps_before_sizes[step][4];
+        report.arguments[2] = steps_before_sizes[step][5];
+        razer_wireless_argb_command(&report, &response_report);
+    }
+
+    bool sizes_read     = razer_get_wireless_argb_zone_sizes();
+
+    report              = razer_create_report(0x00, 0xB5, 0x08);
+    response_report     = razer_create_response();
+    report.arguments[0] = 0x03;
+    report.arguments[1] = 0x03;
+    razer_wireless_argb_command(&report, &response_report);
+
+    for(unsigned int pass = 0; pass < 2; pass++)
+    {
+        report          = razer_create_report(0x00, (pass == 0) ? 0xB7 : 0xB8, 0x01);
+        response_report = razer_create_response();
+        razer_wireless_argb_command(&report, &response_report);
+
+        if(sizes_read)
+        {
+            report              = razer_create_report(0x0F, 0x08, 0x07);
+            response_report     = razer_create_response();
+            report.arguments[0] = 0x03;
+
+            for(unsigned int channel = 0; channel < 3; channel++)
+            {
+                report.arguments[1 + (channel * 2)] = RAZER_LED_ID_ARGB_CH_1 + channel;
+                report.arguments[2 + (channel * 2)] = argb_device_zone_sizes[channel];
+            }
+
+            razer_wireless_argb_command(&report, &response_report);
+        }
+    }
+
+    report              = razer_create_report(0x00, 0x47, 0x02);
+    response_report     = razer_create_response();
+    report.arguments[0] = 0x01;
+    report.arguments[1] = 0x01;
+    razer_wireless_argb_command(&report, &response_report);
+
+    report              = razer_create_report(0x00, 0x86, 0x03);
+    response_report     = razer_create_response();
+    razer_wireless_argb_command(&report, &response_report);
+
+    razer_get_serial();
+    razer_wireless_argb_set_software_mode();
 }
 
 void RazerController::SetLEDs(RGBColor* colors)
@@ -926,6 +1096,15 @@ razer_report RazerController::razer_create_report(unsigned char command_class, u
     new_report.remaining_packets    = 0x00;
     new_report.protocol_type        = 0x00;
     new_report.data_size            = data_size;
+
+    /*---------------------------------------------------------*\
+    | Synapse rolls the wireless ARGB controller's transaction  |
+    | ID through 0x00-0x1E                                      |
+    \*---------------------------------------------------------*/
+    if(dev_pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
+    {
+        new_report.transaction_id.id = (unsigned char)(argb_transaction_id.fetch_add(1) % 0x1F);
+    }
     new_report.command_class        = command_class;
     new_report.command_id.id        = command_id;
 
@@ -1403,10 +1582,24 @@ std::string RazerController::razer_get_firmware()
     struct razer_report report                  = razer_create_report(0x00, RAZER_COMMAND_ID_GET_FIRMWARE_VERSION, 0x02);
     struct razer_report response_report         = razer_create_response();
 
-    std::this_thread::sleep_for(2ms);
-    razer_usb_send(&report);
-    std::this_thread::sleep_for(5ms);
-    razer_usb_receive(&response_report);
+    /*---------------------------------------------------------*\
+    | The wireless ARGB controller replies about 30 ms later,   |
+    | so wait for the reply to this command                     |
+    \*---------------------------------------------------------*/
+    if(dev_pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
+    {
+        if(!razer_wireless_argb_command(&report, &response_report))
+        {
+            response_report = razer_create_response();
+        }
+    }
+    else
+    {
+        std::this_thread::sleep_for(2ms);
+        razer_usb_send(&report);
+        std::this_thread::sleep_for(5ms);
+        razer_usb_receive(&response_report);
+    }
 
     firmware_string = "v" + std::to_string(response_report.arguments[0]) + "." + std::to_string(response_report.arguments[1]);
 
@@ -1424,10 +1617,25 @@ std::string RazerController::razer_get_serial()
     struct razer_report report              = razer_create_report(0x00, RAZER_COMMAND_ID_GET_SERIAL_STRING, 0x16);
     struct razer_report response_report     = razer_create_response();
 
-    std::this_thread::sleep_for(2ms);
-    razer_usb_send(&report);
-    std::this_thread::sleep_for(5ms);
-    razer_usb_receive(&response_report);
+    /*---------------------------------------------------------*\
+    | The wireless ARGB controller replies about 30 ms later.   |
+    | A read 5 ms after the send returned a blank serial or     |
+    | another command's reply                                   |
+    \*---------------------------------------------------------*/
+    if(dev_pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
+    {
+        if(!razer_wireless_argb_command(&report, &response_report))
+        {
+            response_report = razer_create_response();
+        }
+    }
+    else
+    {
+        std::this_thread::sleep_for(2ms);
+        razer_usb_send(&report);
+        std::this_thread::sleep_for(5ms);
+        razer_usb_receive(&response_report);
+    }
 
     memcpy(&serial_string[0], &response_report.arguments[0], 22);
     serial_string[22] = '\0';
