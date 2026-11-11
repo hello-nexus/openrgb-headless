@@ -10,6 +10,7 @@
 \*---------------------------------------------------------*/
 
 #include <array>
+#include <thread>
 #include "RGBController_MSIGPUv2.h"
 #include "LogManager.h"
 
@@ -461,9 +462,13 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
     | latches colors only on the mode write, and without idle   |
     | it reloads its stored profile (blue). The unknown and     |
     | brightness registers are written only by the full         |
-    | sequence below. Frames closer together than the minimum   |
-    | interval are dropped so writes never queue; a dropped     |
-    | frame relies on the caller sending the color again. Any   |
+    | sequence below. The card shows a color only once writes   |
+    | go quiet, so sequences start at least the minimum         |
+    | interval apart. This runs on the controller's device      |
+    | thread, so a frame inside the interval waits out the      |
+    | remainder and is then written; the server coalesces       |
+    | frames that arrive meanwhile, so the next one written is  |
+    | the latest color and the last color is never dropped. Any |
     | failed write unprimes, so the next frame redoes the full  |
     | sequence rather than leaving a partial color staged       |
     \*---------------------------------------------------------*/
@@ -479,14 +484,14 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool allo
             return;
         }
 
-        std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::duration since = std::chrono::steady_clock::now() - direct_write_time;
 
-        if(now - direct_write_time < std::chrono::milliseconds(MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS))
+        if(since < std::chrono::milliseconds(MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS))
         {
-            return;
+            std::this_thread::sleep_for(std::chrono::milliseconds(MSI_GPU_V2_DIRECT_MIN_INTERVAL_MS) - since);
         }
 
-        direct_write_time   = now;
+        direct_write_time   = std::chrono::steady_clock::now();
         direct_primed       = false;
 
         if(controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_MODE, MSI_GPU_V2_MODE_IDLE, MSI_GPU_V2_DIRECT_WRITE_SETTLE_MS)
