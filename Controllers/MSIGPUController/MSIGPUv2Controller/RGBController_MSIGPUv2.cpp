@@ -314,6 +314,7 @@ RGBController_MSIGPUv2::RGBController_MSIGPUv2(MSIGPUv2Controller * controller_p
         case NVIDIA_RTX5090D_DEV:
         case NVIDIA_RTX5090D_V2_DEV:
             rainbow_variants = true;
+            rtx50            = true;
             break;
 
         default:
@@ -500,7 +501,7 @@ void RGBController_MSIGPUv2::SetupZones()
 
 }
 
-void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
+void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool save)
 {
     bool            wrote_rgb1          = false;
     int             written_brightness  = -1;
@@ -520,6 +521,20 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
         direct_generation++;
         direct_pending  = false;
         direct_primed   = false;
+    }
+
+    /*---------------------------------------------------------*\
+    | An RTX 50 card left in per-LED stream mode (0x06 = 0, by  |
+    | SignalRGB or our own per-LED Direct) ignores the register |
+    | path. Leave it (0x06 = 1, MSI's own exit write) first, so |
+    | the RTX 50 control write that follows (0x46 = 1, as       |
+    | SignalRGB writes it before static) and the mode registers |
+    | are taken. Once per mode change, not per frame            |
+    \*---------------------------------------------------------*/
+    if(rtx50 && stream_exit_pending.exchange(false))
+    {
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_PER_LED_ENABLE, 0x01);
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_CONTROL, MSI_GPU_V2_CONTROL_NON_RGBMODE);
     }
 
     switch(current_mode.value)
@@ -653,6 +668,11 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
         written_mode = current_mode.value;
     }
     controller->SetMode(written_mode);
+
+    if(save)
+    {
+        controller->Save();
+    }
 
     /*---------------------------------------------------------*\
     | Log the written values against a readback once per        |
@@ -815,6 +835,7 @@ void RGBController_MSIGPUv2::DirectThreadFunction()
             ok = true;
             if(full)
             {
+                stream_exit_pending = true;
                 ok = ok && controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_CONTROL, 0x01);
                 ok = ok && controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_PER_LED_ENABLE, 0x00);
                 ok = ok && controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_PER_LED_START, 0x00);
@@ -878,13 +899,31 @@ void RGBController_MSIGPUv2::DeviceUpdateMode()
     }
     else
     {
+        stream_exit_pending = true;
         DeviceUpdateAll(modes[active_mode]);
     }
 }
 
 void RGBController_MSIGPUv2::DeviceSaveMode()
 {
+    /*---------------------------------------------------------*\
+    | Save stores the register path state, which per-LED Direct |
+    | never writes: leave the stream, write LED 1 as Static,    |
+    | save, then re-enter the stream                            |
+    \*---------------------------------------------------------*/
+    if(per_led_protocol && modes[active_mode].value == MSI_GPU_V2_MODE_STATIC)
+    {
+        stream_exit_pending = true;
+        DeviceUpdateAll(modes[active_mode], true);
+        QueueDirect(true);
+        return;
+    }
+
     std::lock_guard<std::mutex> write_lock(write_mutex);
 
+    if(per_led_protocol)
+    {
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_PER_LED_ENABLE, 0x01);
+    }
     controller->Save();
 }

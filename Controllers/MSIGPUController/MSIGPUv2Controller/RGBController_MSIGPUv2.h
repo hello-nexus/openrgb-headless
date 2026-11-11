@@ -40,6 +40,8 @@ private:
     MSIGPUv2Controller* controller;
     bool                rainbow_variants;
     bool                per_led_protocol    = false;
+    bool                rtx50               = false;
+    std::atomic<bool>   stream_exit_pending{true};
     std::atomic<bool>   first_apply_logged{false};
 
     /*-----------------------------------------------------*\
@@ -65,7 +67,7 @@ private:
     unsigned char                           applied_brightness  = 0;
     std::chrono::steady_clock::time_point   direct_write_time;
 
-    void       DeviceUpdateAll(const mode& current_mode);
+    void       DeviceUpdateAll(const mode& current_mode, bool save = false);
     void       QueueDirect(bool reprime);
     void       DirectThreadFunction();
 };

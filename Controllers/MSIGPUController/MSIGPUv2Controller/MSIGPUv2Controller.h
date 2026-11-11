@@ -41,7 +41,7 @@ enum
     MSI_GPU_V2_REG_MODE                     = 0x22,     /* MSI GPU Mode Selection Register */
     MSI_GPU_V2_REG_SAVE                     = 0x3F,     /* MSI GPU Commit Changes Register */
     MSI_GPU_V2_REG_CONTROL                  = 0x46,     /* MSI GPU Direction Register      */
-    MSI_GPU_V2_REG_PER_LED_ENABLE           = 0x06,     /* RTX 50 per-LED mode, 0 = on     */
+    MSI_GPU_V2_REG_PER_LED_ENABLE           = 0x06,     /* RTX 50 per-LED mode, 0 = on, 1 = off */
     MSI_GPU_V2_REG_PER_LED_START            = 0x20,     /* RTX 50 per-LED setup            */
     MSI_GPU_V2_REG_PER_LED_COLORS           = 0x04,     /* RTX 50 per-LED color block      */
 };
