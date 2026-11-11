@@ -8,6 +8,7 @@
 \*---------------------------------------------------------*/
 
 #include "MSIGPUController.h"
+#include "LogManager.h"
 #include <cstring>
 
 MSIGPUController::MSIGPUController(i2c_smbus_interface* bus, msi_gpu_dev_id dev, std::string dev_name)
@@ -15,6 +16,8 @@ MSIGPUController::MSIGPUController(i2c_smbus_interface* bus, msi_gpu_dev_id dev,
     this->bus   = bus;
     this->dev   = dev;
     this->name  = dev_name;
+
+    retry_recovery_logged = false;
 }
 
 MSIGPUController::~MSIGPUController()
@@ -73,7 +76,26 @@ unsigned char MSIGPUController::MSIGPURegisterRead(unsigned char reg)
     return(bus->i2c_smbus_read_byte_data(dev, reg));
 }
 
+/*---------------------------------------------------------*\
+| NvAPI I2C writes fail transiently (status -1). A dropped  |
+| color byte leaves the card on a wrong color until the     |
+| next change, so retry immediately: the bus logs each      |
+| failed attempt, a recovery is noted here once.            |
+\*---------------------------------------------------------*/
+#define MSI_GPU_WRITE_RETRIES   2
+
 void MSIGPUController::MSIGPURegisterWrite(unsigned char reg, unsigned char val)
 {
-    bus->i2c_smbus_write_byte_data(dev, reg, val);
+    for(int attempt = 0; attempt <= MSI_GPU_WRITE_RETRIES; attempt++)
+    {
+        if(bus->i2c_smbus_write_byte_data(dev, reg, val) >= 0)
+        {
+            if(attempt > 0 && !retry_recovery_logged)
+            {
+                LOG_INFO("[%s] Register 0x%02X write succeeded on retry %d, later recoveries are not logged", name.c_str(), reg, attempt);
+                retry_recovery_logged = true;
+            }
+            return;
+        }
+    }
 }

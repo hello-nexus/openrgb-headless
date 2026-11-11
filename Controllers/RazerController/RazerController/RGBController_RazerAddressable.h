@@ -43,4 +43,6 @@ public:
 
 private:
     RazerController*    controller;
+
+    unsigned int        ClampedZoneSize(unsigned int zone_idx);
 };
