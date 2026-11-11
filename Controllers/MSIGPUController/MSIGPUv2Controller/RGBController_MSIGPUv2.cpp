@@ -524,17 +524,20 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool save
     }
 
     /*---------------------------------------------------------*\
-    | An RTX 50 card left in per-LED stream mode (0x06 = 0, by  |
-    | SignalRGB or our own per-LED Direct) ignores the register |
-    | path. Leave it (0x06 = 1, MSI's own exit write) first, so |
-    | the RTX 50 control write that follows (0x46 = 1, as       |
-    | SignalRGB writes it before static) and the mode registers |
-    | are taken. Once per mode change, not per frame            |
+    | An RTX 50 card left in per-LED stream mode ignores the    |
+    | register path: leave the stream and set the control       |
+    | register first. Once per mode change, and again on the    |
+    | next update if a write failed                             |
     \*---------------------------------------------------------*/
     if(rtx50 && stream_exit_pending.exchange(false))
     {
-        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_PER_LED_ENABLE, 0x01);
-        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_CONTROL, MSI_GPU_V2_CONTROL_NON_RGBMODE);
+        bool exit_ok    = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_PER_LED_ENABLE, 0x01);
+        bool control_ok = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_CONTROL, MSI_GPU_V2_CONTROL_NON_RGBMODE);
+
+        if(!exit_ok || !control_ok)
+        {
+            stream_exit_pending = true;
+        }
     }
 
     switch(current_mode.value)
