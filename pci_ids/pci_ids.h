@@ -877,9 +877,15 @@
 #define MSI_RTX5060TI_GAMING_OC_SUB_DEV                         0x5354
 #define MSI_RTX5060_8G_GAMING_TRIO_OC_DEV                       0x5372
 #define MSI_RTX5060TI_16G_GAMING_TRIO_OC_DEV                    0x5353
+#define MSI_RTX5060TI_GAMING_TRIO_OC_SUB_DEV                    0x5360
+#define MSI_RTX5060TI_GAMING_OC_SUB_DEV_2                       0x5361
+#define MSI_RTX5060TI_VANGUARD_SOC_SUB_DEV                      0x5352
 #define MSI_RTX5070_GAMING_TRIO_SUB_DEV                         0x5322
+#define MSI_RTX5070_VANGUARD_SOC_SUB_DEV                        0x5321
 #define MSI_RTX5070TI_GAMING_TRIO_SUB_DEV                       0x5315
 #define MSI_RTX5070TI_VANGUARD_SOC_SUB_DEV                      0X5314
+#define MSI_RTX5070TI_MLG_EDITION_SUB_DEV                       0x5318
+#define MSI_RTX5070TI_SHADOW_3X_SUB_DEV                         0x5310
 #define MSI_RTX5080_GAMING_TRIO_OC_SUB_DEV                      0x5315
 #define MSI_RTX5080_VANGUARD_SOC_SUB_DEV                        0x5314
 #define MSI_RTX5080_SUPRIM_SOC_SUB_DEV                          0x5313
