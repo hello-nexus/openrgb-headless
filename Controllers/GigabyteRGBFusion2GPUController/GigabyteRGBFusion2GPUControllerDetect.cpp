@@ -7,7 +7,9 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <chrono>
 #include <stdio.h>
+#include <thread>
 #include "DetectionManager.h"
 #include "GigabyteRGBFusion2GPUController.h"
 #include "i2c_amd_gpu.h"
@@ -32,12 +34,25 @@ bool TestForGigabyteRGBFusion2GPUController(i2c_smbus_interface* bus, unsigned c
     uint8_t data_pkt[write_sz] = { 0xAB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
     uint8_t data_readpkt[read_sz] = {};
 
-    res = bus->i2c_write_block(address, write_sz, data_pkt);
-
     /*-----------------------------------------------------*\
-    | Accepting on the read alone after a failed probe      |
-    | write attached devices whose every later write failed.|
+    | The probe write must succeed within three attempts;   |
+    | a controller that rejects writes is not attached.     |
     \*-----------------------------------------------------*/
+    for(int attempt = 0; attempt < 3; attempt++)
+    {
+        if(attempt > 0)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        res = bus->i2c_write_block(address, write_sz, data_pkt);
+
+        if(res >= 0)
+        {
+            break;
+        }
+    }
+
     if(res < 0)
     {
         LOG_DEBUG("[%s] probe write at address 0x%02X failed (%d)", GIGABYTEGPU_CONTROLLER_NAME2, address, res);

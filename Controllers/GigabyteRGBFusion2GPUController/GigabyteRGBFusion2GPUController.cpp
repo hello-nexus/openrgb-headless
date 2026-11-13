@@ -15,11 +15,13 @@
 using namespace std::chrono_literals;
 
 /*---------------------------------------------------------*\
-| A controller that fails this many writes in a row is      |
-| gone for the session; rewriting it every frame floods the |
-| GPU I2C bus and has coincided with driver TDRs.           |
+| After this many failed writes in a row, writes pause for  |
+| the cooldown, then one write is tried: success resumes,   |
+| failure starts another cooldown. Paused writes count as   |
+| failures in the controller's write health.                |
 \*---------------------------------------------------------*/
 #define RGB_FUSION2_GPU_MAX_WRITE_FAILURES  50
+#define RGB_FUSION2_GPU_WRITE_COOLDOWN      30s
 
 RGBFusion2GPUController::RGBFusion2GPUController(i2c_smbus_interface* bus, rgb_fusion_dev_id dev, std::string dev_name)
 {
@@ -53,21 +55,32 @@ std::string RGBFusion2GPUController::GetDeviceName()
 
 void RGBFusion2GPUController::WriteBlock(uint8_t* data, int size)
 {
-    if(writes_disabled)
+    if(writes_disabled && std::chrono::steady_clock::now() < retry_after)
     {
+        RGBController::RecordWriteResult(false);
         return;
     }
 
     if(bus->i2c_write_block(dev, size, data) < 0)
     {
-        if(++write_failures >= RGB_FUSION2_GPU_MAX_WRITE_FAILURES)
+        if(writes_disabled)
+        {
+            retry_after = std::chrono::steady_clock::now() + RGB_FUSION2_GPU_WRITE_COOLDOWN;
+        }
+        else if(++write_failures >= RGB_FUSION2_GPU_MAX_WRITE_FAILURES)
         {
             writes_disabled = true;
-            LOG_WARNING("[%s] %d consecutive I2C writes failed at address 0x%02X, writes disabled until restart", name.c_str(), write_failures, dev);
+            retry_after     = std::chrono::steady_clock::now() + RGB_FUSION2_GPU_WRITE_COOLDOWN;
+            LOG_WARNING("[%s] %d consecutive I2C writes failed at address 0x%02X, writes paused, retrying every 30 s", name.c_str(), write_failures, dev);
         }
     }
     else
     {
+        if(writes_disabled)
+        {
+            writes_disabled = false;
+            LOG_INFO("[%s] I2C write at address 0x%02X succeeded, writes resumed", name.c_str(), dev);
+        }
         write_failures = 0;
     }
 }

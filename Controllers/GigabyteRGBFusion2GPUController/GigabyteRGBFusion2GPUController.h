@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <string>
 #include "i2c_smbus.h"
 #include "RGBController.h"
@@ -80,6 +81,8 @@ private:
     std::string             name;
     int                     write_failures;
     bool                    writes_disabled;
+    std::chrono::steady_clock::time_point
+                            retry_after;
 
     void            WriteBlock(uint8_t* data, int size);
 };
