@@ -19,6 +19,8 @@
 #include "RGBController_GigabyteRGBFusion2GPU.h"
 
 #define GIGABYTEGPU_CONTROLLER_NAME2    "Gigabyte RGB Fusion2 GPU"
+#define GIGABYTEGPU_PROBE_ATTEMPTS      3
+#define GIGABYTEGPU_PROBE_RETRY_DELAY   std::chrono::milliseconds(10)
 
 bool TestForGigabyteRGBFusion2GPUController(i2c_smbus_interface* bus, unsigned char address)
 {
@@ -35,14 +37,15 @@ bool TestForGigabyteRGBFusion2GPUController(i2c_smbus_interface* bus, unsigned c
     uint8_t data_readpkt[read_sz] = {};
 
     /*-----------------------------------------------------*\
-    | The probe write must succeed within three attempts;   |
-    | a controller that rejects writes is not attached.     |
+    | The probe write must succeed within the probe         |
+    | attempts; a controller that rejects writes is not     |
+    | attached.                                             |
     \*-----------------------------------------------------*/
-    for(int attempt = 0; attempt < 3; attempt++)
+    for(int attempt = 0; attempt < GIGABYTEGPU_PROBE_ATTEMPTS; attempt++)
     {
         if(attempt > 0)
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(GIGABYTEGPU_PROBE_RETRY_DELAY);
         }
 
         res = bus->i2c_write_block(address, write_sz, data_pkt);

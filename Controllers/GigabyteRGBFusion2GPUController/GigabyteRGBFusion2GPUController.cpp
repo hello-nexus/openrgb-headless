@@ -71,7 +71,7 @@ void RGBFusion2GPUController::WriteBlock(uint8_t* data, int size)
         {
             writes_disabled = true;
             retry_after     = std::chrono::steady_clock::now() + RGB_FUSION2_GPU_WRITE_COOLDOWN;
-            LOG_WARNING("[%s] %d consecutive I2C writes failed at address 0x%02X, writes paused, retrying every 30 s", name.c_str(), write_failures, dev);
+            LOG_WARNING("[%s] %d consecutive I2C writes failed at address 0x%02X, writes paused, retrying every %lld s", name.c_str(), write_failures, dev, (long long)std::chrono::duration_cast<std::chrono::seconds>(RGB_FUSION2_GPU_WRITE_COOLDOWN).count());
         }
     }
     else
