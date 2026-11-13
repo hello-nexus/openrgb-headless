@@ -258,6 +258,7 @@
 #define RAZER_BASE_STATION_V2_CHROMA_PID                0x0F20
 #define RAZER_CHARGING_PAD_CHROMA_PID                   0x0F26
 #define RAZER_CHROMA_ADDRESSABLE_RGB_CONTROLLER_PID     0x0F1F
+#define RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID       0x0F2C
 #define RAZER_CHROMA_HDK_PID                            0x0F09
 #define RAZER_CHROMA_MUG_PID                            0x0F07
 #define RAZER_CHROMA_PC_CASE_LIGHTING_KIT_PID           0x0F0E

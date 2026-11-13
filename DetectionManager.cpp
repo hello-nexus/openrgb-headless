@@ -91,6 +91,8 @@ const hidapi_wrapper default_hidapi_wrapper =
     NULL,
     (hidapi_wrapper_send_feature_report)            hid_send_feature_report,
     (hidapi_wrapper_get_feature_report)             hid_get_feature_report,
+    (hidapi_wrapper_write)                          hid_write,
+    (hidapi_wrapper_get_input_report)               hid_get_input_report,
     (hidapi_wrapper_get_serial_number_string)       hid_get_serial_number_string,
     (hidapi_wrapper_open_path)                      hid_open_path,
     (hidapi_wrapper_enumerate)                      hid_enumerate,
@@ -1504,17 +1506,31 @@ void DetectionManager::BackgroundHIDInit()
 #ifdef __linux__
 #ifdef __GLIBC__
     /*-----------------------------------------------------*\
-    | Load the libhidapi-libusb library                     |
+    | Load the libhidapi-libusb library. The unversioned    |
+    | .so symlink ships only in -devel packages, so fall    |
+    | back to the versioned soname a desktop install has.   |
     \*-----------------------------------------------------*/
 #if(HID_HOTPLUG_ENABLED)
-    hidapi_libusb_handle = dlopen("libhidapi-hotplug-libusb.so", RTLD_NOW | RTLD_NODELETE | RTLD_DEEPBIND);
+    const char* hidapi_libusb_names[] = { "libhidapi-hotplug-libusb.so", "libhidapi-hotplug-libusb.so.0" };
 #else
-    hidapi_libusb_handle = dlopen("libhidapi-libusb.so", RTLD_NOW | RTLD_NODELETE | RTLD_DEEPBIND);
+    const char* hidapi_libusb_names[] = { "libhidapi-libusb.so", "libhidapi-libusb.so.0" };
 #endif
+    const char* hidapi_libusb_name = hidapi_libusb_names[0];
+
+    for(const char* name : hidapi_libusb_names)
+    {
+        hidapi_libusb_handle = dlopen(name, RTLD_NOW | RTLD_NODELETE | RTLD_DEEPBIND);
+
+        if(hidapi_libusb_handle)
+        {
+            hidapi_libusb_name = name;
+            break;
+        }
+    }
 
     if(hidapi_libusb_handle)
     {
-        LOG_DEBUG("[%s] Loaded libusb HID library", DETECTIONMANAGER);
+        LOG_INFO("[%s] Loaded libusb HID library %s", DETECTIONMANAGER, hidapi_libusb_name);
 
         /*-------------------------------------------------*\
         | Create a wrapper with the libusb functions        |
@@ -1524,6 +1540,8 @@ void DetectionManager::BackgroundHIDInit()
             .dyn_handle                         = hidapi_libusb_handle,
             .hid_send_feature_report            = (hidapi_wrapper_send_feature_report)          dlsym(hidapi_libusb_handle,"hid_send_feature_report"),
             .hid_get_feature_report             = (hidapi_wrapper_get_feature_report)           dlsym(hidapi_libusb_handle,"hid_get_feature_report"),
+            .hid_write                          = (hidapi_wrapper_write)                        dlsym(hidapi_libusb_handle,"hid_write"),
+            .hid_get_input_report               = (hidapi_wrapper_get_input_report)             dlsym(hidapi_libusb_handle,"hid_get_input_report"),
             .hid_get_serial_number_string       = (hidapi_wrapper_get_serial_number_string)     dlsym(hidapi_libusb_handle,"hid_get_serial_number_string"),
             .hid_open_path                      = (hidapi_wrapper_open_path)                    dlsym(hidapi_libusb_handle,"hid_open_path"),
             .hid_enumerate                      = (hidapi_wrapper_enumerate)                    dlsym(hidapi_libusb_handle,"hid_enumerate"),
@@ -1538,7 +1556,7 @@ void DetectionManager::BackgroundHIDInit()
     }
     else
     {
-        LOG_DEBUG("[%s] Failed to load libusb HID library", DETECTIONMANAGER);
+        LOG_WARNING("[%s] Failed to load libusb HID library (%s): %s", DETECTIONMANAGER, hidapi_libusb_names[1], dlerror());
     }
 #endif
 #endif

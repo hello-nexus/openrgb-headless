@@ -188,7 +188,18 @@ void RGBController_RazerAddressable::SetupZones()
 
         if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SIZE))
         {
-            zones[zone_idx].leds_count              = 0;
+            /*---------------------------------------------*\
+            | The wireless controller reports its channel   |
+            | sizes, use them until the user sets one       |
+            \*---------------------------------------------*/
+            if(device_list[device_index]->pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
+            {
+                zones[zone_idx].leds_count          = controller->GetAddressableDeviceZoneSize((unsigned int)zone_idx);
+            }
+            else
+            {
+                zones[zone_idx].leds_count          = 0;
+            }
         }
 
         if(!(zones[zone_idx].flags & ZONE_FLAG_MANUALLY_CONFIGURED_TYPE))
@@ -236,24 +247,79 @@ void RGBController_RazerAddressable::DeviceConfigureZone(int zone_idx)
 {
     if((size_t)zone_idx < zones.size())
     {
-        controller->SetAddressableZoneSizes(zones[0].leds_count,
-                                            zones[1].leds_count,
-                                            zones[2].leds_count,
-                                            zones[3].leds_count,
-                                            zones[4].leds_count,
-                                            zones[5].leds_count);
+        /*---------------------------------------------------------*\
+        | The wireless controller has three channels, and a zone    |
+        | whose manual size was cleared goes back to the size the   |
+        | device reported                                           |
+        \*---------------------------------------------------------*/
+        if(device_list[controller->GetDeviceIndex()]->pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
+        {
+            unsigned char sizes[3];
+
+            for(unsigned int zone_id = 0; zone_id < 3; zone_id++)
+            {
+                if(zones[zone_id].flags & ZONE_FLAG_MANUALLY_CONFIGURED_SIZE)
+                {
+                    sizes[zone_id] = (unsigned char)ClampedZoneSize(zone_id);
+                }
+                else
+                {
+                    sizes[zone_id] = controller->GetAddressableDeviceZoneSize(zone_id);
+                }
+            }
+
+            controller->SetAddressableZoneSizes(sizes[0],
+                                                sizes[1],
+                                                sizes[2],
+                                                0,
+                                                0,
+                                                0);
+        }
+        else
+        {
+            controller->SetAddressableZoneSizes(ClampedZoneSize(0),
+                                                ClampedZoneSize(1),
+                                                ClampedZoneSize(2),
+                                                ClampedZoneSize(3),
+                                                ClampedZoneSize(4),
+                                                ClampedZoneSize(5));
+        }
 
         SetupZones();
     }
 }
 
+/*---------------------------------------------------------*\
+| A size from a client or profile can exceed what the       |
+| channel holds, so never use more than leds_max            |
+\*---------------------------------------------------------*/
+unsigned int RGBController_RazerAddressable::ClampedZoneSize(unsigned int zone_idx)
+{
+    if(zones[zone_idx].leds_count > zones[zone_idx].leds_max)
+    {
+        return(zones[zone_idx].leds_max);
+    }
+
+    return(zones[zone_idx].leds_count);
+}
+
 void RGBController_RazerAddressable::DeviceUpdateLEDs()
 {
-    RGBColor    colors_buf[80 * 6];
+    unsigned int    zone_stride = device_list[controller->GetDeviceIndex()]->cols;
+    RGBColor        colors_buf[125 * 6];
+
+    /*---------------------------------------------------------*\
+    | The wireless controller gets every channel padded to the  |
+    | largest channel size, so the padding must be black        |
+    \*---------------------------------------------------------*/
+    if(device_list[controller->GetDeviceIndex()]->pid == RAZER_CHROMA_WIRELESS_ARGB_CONTROLLER_PID)
+    {
+        memset(colors_buf, 0, sizeof(colors_buf));
+    }
 
     for(unsigned int zone_id = 0; zone_id < zones.size(); zone_id++)
     {
-        memcpy(&colors_buf[(80 * zone_id)], zones[zone_id].colors, sizeof(RGBColor) * zones[zone_id].leds_count);
+        memcpy(&colors_buf[(zone_stride * zone_id)], zones[zone_id].colors, sizeof(RGBColor) * ClampedZoneSize(zone_id));
     }
 
     controller->SetLEDs(&colors_buf[0]);
@@ -271,6 +337,15 @@ void RGBController_RazerAddressable::DeviceUpdateSingleLED(int /*led*/)
 
 void RGBController_RazerAddressable::DeviceUpdateMode()
 {
+    /*---------------------------------------------------------*\
+    | Leaving Direct stops the wireless controller frame resend |
+    | and makes the next Direct frame re-enter custom mode      |
+    \*---------------------------------------------------------*/
+    if(modes[active_mode].value != RAZER_ADDRESSABLE_MODE_DIRECT)
+    {
+        controller->InvalidateCustomFrame();
+    }
+
     switch(modes[active_mode].value)
     {
         case RAZER_ADDRESSABLE_MODE_DIRECT:

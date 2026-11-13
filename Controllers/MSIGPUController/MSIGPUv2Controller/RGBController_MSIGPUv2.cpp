@@ -9,7 +9,9 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
 #include <array>
+#include <string>
 #include "RGBController_MSIGPUv2.h"
 #include "LogManager.h"
 
@@ -287,6 +289,17 @@ RGBController_MSIGPUv2::RGBController_MSIGPUv2(MSIGPUv2Controller * controller_p
     modes.push_back(doubleflashing);
 
     /*---------------------------------------------------------*\
+    | The RTX 5090 Gaming Trio takes Direct colors through a    |
+    | per-LED block, not the R1/G1/B1 registers                 |
+    \*---------------------------------------------------------*/
+    per_led_protocol = (msi_gpu_id == ((NVIDIA_RTX5090_DEV << 16) | MSI_RTX5090_GAMING_TRIO_SUB_DEV));
+
+    if(per_led_protocol)
+    {
+        LOG_WARNING("[MSI GPU v2] %s (%s) PCI id 0x%08X, Direct via per-LED block 0x04", name.c_str(), location.c_str(), (unsigned int)msi_gpu_id);
+    }
+
+    /*---------------------------------------------------------*\
     | RTX 50 series cards have more effects, and a rainbow      |
     | variant of the single color ones at the next mode value   |
     \*---------------------------------------------------------*/
@@ -301,6 +314,7 @@ RGBController_MSIGPUv2::RGBController_MSIGPUv2(MSIGPUv2Controller * controller_p
         case NVIDIA_RTX5090D_DEV:
         case NVIDIA_RTX5090D_V2_DEV:
             rainbow_variants = true;
+            rtx50            = true;
             break;
 
         default:
@@ -392,11 +406,26 @@ RGBController_MSIGPUv2::RGBController_MSIGPUv2(MSIGPUv2Controller * controller_p
 
     modes[active_mode].speed        = MSI_GPU_V2_SPEED_MID;
     modes[active_mode].brightness   = MSI_GPU_V2_BRIGHTNESS_MAX;
+
+    if(per_led_protocol)
+    {
+        direct_thread               = std::thread(&RGBController_MSIGPUv2::DirectThreadFunction, this);
+    }
 }
 
 RGBController_MSIGPUv2::~RGBController_MSIGPUv2()
 {
     Shutdown();
+
+    {
+        std::lock_guard<std::mutex> lock(direct_mutex);
+        direct_running = false;
+    }
+    direct_cv.notify_all();
+    if(direct_thread.joinable())
+    {
+        direct_thread.join();
+    }
 
     delete controller;
 }
@@ -408,18 +437,40 @@ void RGBController_MSIGPUv2::SetupZones()
     \*---------------------------------------------------------*/
     zone msi_gpu_zone;
     msi_gpu_zone.name          = "GPU";
-    msi_gpu_zone.type          = ZONE_TYPE_SINGLE;
-    msi_gpu_zone.leds_min      = 1;
-    msi_gpu_zone.leds_max      = 1;
-    msi_gpu_zone.leds_count    = 1;
-    zones.push_back(msi_gpu_zone);
 
-    /*---------------------------------------------------------*\
-    | Set up LED                                                |
-    \*---------------------------------------------------------*/
-    led led1;
-    led1.name = "Color";
-    leds.push_back(led1);
+    if(per_led_protocol)
+    {
+        /*-----------------------------------------------------*\
+        | The per-LED block addresses each LED of the card      |
+        \*-----------------------------------------------------*/
+        msi_gpu_zone.type       = ZONE_TYPE_LINEAR;
+        msi_gpu_zone.leds_min   = MSI_GPU_V2_PER_LED_SLOTS;
+        msi_gpu_zone.leds_max   = MSI_GPU_V2_PER_LED_SLOTS;
+        msi_gpu_zone.leds_count = MSI_GPU_V2_PER_LED_SLOTS;
+        zones.push_back(msi_gpu_zone);
+
+        for(unsigned int led_idx = 0; led_idx < MSI_GPU_V2_PER_LED_SLOTS; led_idx++)
+        {
+            led new_led;
+            new_led.name = "LED " + std::to_string(led_idx + 1);
+            leds.push_back(new_led);
+        }
+    }
+    else
+    {
+        msi_gpu_zone.type       = ZONE_TYPE_SINGLE;
+        msi_gpu_zone.leds_min   = 1;
+        msi_gpu_zone.leds_max   = 1;
+        msi_gpu_zone.leds_count = 1;
+        zones.push_back(msi_gpu_zone);
+
+        /*-----------------------------------------------------*\
+        | Set up LED                                            |
+        \*-----------------------------------------------------*/
+        led led1;
+        led1.name = "Color";
+        leds.push_back(led1);
+    }
 
     SetupColors();
 
@@ -427,7 +478,10 @@ void RGBController_MSIGPUv2::SetupZones()
     | Initialize colors                                             |
     | This controller doesn't support reading colors from device    |
     \*-------------------------------------------------------------*/
-    colors[0] =  ToRGBColor(0xFF, 0, 0);
+    for(std::size_t led_idx = 0; led_idx < colors.size(); led_idx++)
+    {
+        colors[led_idx] = ToRGBColor(0xFF, 0, 0);
+    }
 
     for(unsigned int mode_idx = 0; mode_idx < modes.size(); mode_idx++)
     {
@@ -447,11 +501,49 @@ void RGBController_MSIGPUv2::SetupZones()
 
 }
 
-void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
+void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode, bool save)
 {
     bool            wrote_rgb1          = false;
     int             written_brightness  = -1;
     unsigned char   written_mode;
+
+    /*---------------------------------------------------------*\
+    | On the per-LED path, keep the Direct worker off the bus   |
+    | and drop any frame it took before this mode               |
+    \*---------------------------------------------------------*/
+    std::unique_lock<std::mutex> write_lock(write_mutex, std::defer_lock);
+
+    if(per_led_protocol)
+    {
+        write_lock.lock();
+
+        std::lock_guard<std::mutex> lock(direct_mutex);
+        direct_generation++;
+        direct_pending  = false;
+        direct_primed   = false;
+    }
+
+    /*---------------------------------------------------------*\
+    | An RTX 50 card left in per-LED stream mode ignores the    |
+    | register path: leave the stream and set the control       |
+    | register first. Once per mode change, and on the next     |
+    | few updates if a write failed, so a card that keeps       |
+    | refusing the write does not slow every Direct frame       |
+    \*---------------------------------------------------------*/
+    if(rtx50 && stream_exit_pending.exchange(false))
+    {
+        bool exit_ok    = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_PER_LED_ENABLE, 0x01);
+        bool control_ok = controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_CONTROL, MSI_GPU_V2_CONTROL_NON_RGBMODE);
+
+        if(exit_ok && control_ok)
+        {
+            stream_exit_failures = 0;
+        }
+        else if(++stream_exit_failures < 3)
+        {
+            stream_exit_pending = true;
+        }
+    }
 
     switch(current_mode.value)
     {
@@ -585,9 +677,15 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
     }
     controller->SetMode(written_mode);
 
+    if(save)
+    {
+        controller->Save();
+    }
+
     /*---------------------------------------------------------*\
     | Log the written values against a readback once per        |
-    | controller; Direct mode reaches here on every frame       |
+    | controller; Direct mode reaches here on every frame,      |
+    | except on the per-LED path                                |
     \*---------------------------------------------------------*/
     if(!first_apply_logged.exchange(true))
     {
@@ -608,30 +706,232 @@ void RGBController_MSIGPUv2::DeviceUpdateAll(const mode& current_mode)
 }
 
 
+/*---------------------------------------------------------*\
+| Per-LED Direct hands the frame to the worker and returns, |
+| so the latest frame is kept even while the bus is busy    |
+\*---------------------------------------------------------*/
+void RGBController_MSIGPUv2::QueueDirect(bool reprime)
+{
+    {
+        std::lock_guard<std::mutex> lock(direct_mutex);
+        for(unsigned int led_idx = 0; led_idx < MSI_GPU_V2_PER_LED_SLOTS; led_idx++)
+        {
+            pending_colors[led_idx] = colors[(led_idx < colors.size()) ? led_idx : 0];
+        }
+        pending_brightness  = (unsigned char)(MSI_GPU_V2_BRIGHTNESS_MULTI * modes[active_mode].brightness);
+        direct_pending      = true;
+        if(reprime)
+        {
+            direct_primed   = false;
+            direct_reprime++;
+        }
+    }
+    direct_cv.notify_all();
+}
+
+/*---------------------------------------------------------*\
+| Writes the latest per-LED Direct frame: setup registers,  |
+| then one per-LED block per changed frame. The setup runs  |
+| on the first frame, a mode or brightness change and after |
+| a failed write. An unchanged frame writes nothing, but the|
+| setup and last colors are rewritten once older than the   |
+| refresh interval, so a card reset from outside recovers   |
+\*---------------------------------------------------------*/
+void RGBController_MSIGPUv2::DirectThreadFunction()
+{
+    std::unique_lock<std::mutex> lock(direct_mutex);
+
+    while(true)
+    {
+        bool refresh = false;
+
+        if(direct_primed && !direct_pending)
+        {
+            std::chrono::steady_clock::time_point refresh_due = direct_write_time + std::chrono::milliseconds(MSI_GPU_V2_DIRECT_REFRESH_MS);
+
+            if(!direct_cv.wait_until(lock, refresh_due, [this]{ return(!direct_running || direct_pending || !direct_primed); }))
+            {
+                refresh = true;
+            }
+        }
+        else
+        {
+            direct_cv.wait(lock, [this]{ return(!direct_running || direct_pending); });
+        }
+
+        if(!direct_running)
+        {
+            break;
+        }
+
+        if(!refresh && !direct_pending)
+        {
+            continue;
+        }
+
+        bool full = refresh || !direct_primed || pending_brightness != applied_brightness;
+
+        if(!refresh)
+        {
+            if(!full && std::equal(pending_colors, pending_colors + MSI_GPU_V2_PER_LED_SLOTS, applied_colors))
+            {
+                direct_pending = false;
+                continue;
+            }
+
+            std::chrono::steady_clock::time_point due = direct_write_time + std::chrono::milliseconds(MSI_GPU_V2_PER_LED_MIN_INTERVAL_MS);
+
+            if(std::chrono::steady_clock::now() < due)
+            {
+                direct_cv.wait_until(lock, due, [this]{ return(!direct_running); });
+                continue;
+            }
+        }
+
+        RGBColor            led_colors[MSI_GPU_V2_PER_LED_SLOTS];
+        std::copy(refresh ? applied_colors : pending_colors, (refresh ? applied_colors : pending_colors) + MSI_GPU_V2_PER_LED_SLOTS, led_colors);
+
+        const unsigned char brightness  = refresh ? applied_brightness : pending_brightness;
+        const unsigned int  generation  = direct_generation;
+        const unsigned int  reprime     = direct_reprime;
+
+        if(!refresh)
+        {
+            direct_pending  = false;
+        }
+        lock.unlock();
+
+        bool ok = false;
+        {
+            std::lock_guard<std::mutex> write_lock(write_mutex);
+
+            lock.lock();
+            bool current = (generation == direct_generation);
+            lock.unlock();
+
+            if(!current)
+            {
+                lock.lock();
+                continue;
+            }
+
+            lock.lock();
+            direct_write_time = std::chrono::steady_clock::now();
+            lock.unlock();
+
+            /*-----------------------------------------------------*\
+            | Block: 0x01, then index, R, G, B, 0x01 per LED.       |
+            | LED i's record goes in slot per_led_slots[i], which   |
+            | swaps the last two; the block has no brightness, so   |
+            | scale the color                                       |
+            \*-----------------------------------------------------*/
+            static const unsigned int per_led_slots[MSI_GPU_V2_PER_LED_SLOTS] = { 0, 1, 2, 3, 5, 4 };
+            unsigned char block[1 + MSI_GPU_V2_PER_LED_SLOTS * 5];
+
+            block[0] = 0x01;
+            for(unsigned int led_idx = 0; led_idx < MSI_GPU_V2_PER_LED_SLOTS; led_idx++)
+            {
+                unsigned int offset     = 1 + per_led_slots[led_idx] * 5;
+
+                block[offset]           = (unsigned char)led_idx;
+                block[offset + 1]       = (unsigned char)(RGBGetRValue(led_colors[led_idx]) * brightness / 100);
+                block[offset + 2]       = (unsigned char)(RGBGetGValue(led_colors[led_idx]) * brightness / 100);
+                block[offset + 3]       = (unsigned char)(RGBGetBValue(led_colors[led_idx]) * brightness / 100);
+                block[offset + 4]       = 0x01;
+            }
+
+            ok = true;
+            if(full)
+            {
+                stream_exit_pending = true;
+                ok = ok && controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_CONTROL, 0x01);
+                ok = ok && controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_PER_LED_ENABLE, 0x00);
+                ok = ok && controller->MSIGPURegisterWriteLogged(MSI_GPU_V2_REG_PER_LED_START, 0x00);
+            }
+            ok = ok && controller->MSIGPUI2CBlockWrite(MSI_GPU_V2_REG_PER_LED_COLORS, block, sizeof(block));
+
+            if(full && !refresh && !first_apply_logged.exchange(true))
+            {
+                LOG_WARNING("[MSI GPU v2] %s (%s) first apply (Direct, per-LED block): brightness 0x%02X LED 1 rgb 0x%02X/0x%02X/0x%02X%s", name.c_str(), location.c_str(), brightness, RGBGetRValue(led_colors[0]), RGBGetGValue(led_colors[0]), RGBGetBValue(led_colors[0]), ok ? "" : ", write failed");
+            }
+        }
+
+        lock.lock();
+        if(generation == direct_generation)
+        {
+            direct_primed = ok && reprime == direct_reprime;
+            if(ok)
+            {
+                std::copy(led_colors, led_colors + MSI_GPU_V2_PER_LED_SLOTS, applied_colors);
+                applied_brightness  = brightness;
+            }
+        }
+    }
+}
+
 void RGBController_MSIGPUv2::DeviceUpdateLEDs()
 {
-    DeviceUpdateAll(modes[active_mode]);
+    if(per_led_protocol && modes[active_mode].value == MSI_GPU_V2_MODE_STATIC)
+    {
+        QueueDirect(false);
+    }
+    else
+    {
+        DeviceUpdateAll(modes[active_mode]);
+    }
 }
 
 void RGBController_MSIGPUv2::DeviceUpdateZoneLEDs(int /*zone*/)
 {
-    DeviceUpdateAll(modes[active_mode]);
+    DeviceUpdateLEDs();
 }
 
 
 void RGBController_MSIGPUv2::DeviceUpdateSingleLED(int /*led*/)
 {
     /*---------------------------------------------------------*\
-    | This device does not support updating single LEDs         |
+    | Only the per-LED Direct path can address one LED, and it  |
+    | writes all of them in one block                           |
     \*---------------------------------------------------------*/
+    if(per_led_protocol && modes[active_mode].value == MSI_GPU_V2_MODE_STATIC)
+    {
+        QueueDirect(false);
+    }
 }
 
 void RGBController_MSIGPUv2::DeviceUpdateMode()
 {
-    DeviceUpdateAll(modes[active_mode]);
+    if(per_led_protocol && modes[active_mode].value == MSI_GPU_V2_MODE_STATIC)
+    {
+        QueueDirect(true);
+    }
+    else
+    {
+        stream_exit_pending = true;
+        DeviceUpdateAll(modes[active_mode]);
+    }
 }
 
 void RGBController_MSIGPUv2::DeviceSaveMode()
 {
+    /*---------------------------------------------------------*\
+    | Save stores the register path state, which per-LED Direct |
+    | never writes: leave the stream, write LED 1 as Static,    |
+    | save, then re-enter the stream                            |
+    \*---------------------------------------------------------*/
+    if(per_led_protocol && modes[active_mode].value == MSI_GPU_V2_MODE_STATIC)
+    {
+        stream_exit_pending = true;
+        DeviceUpdateAll(modes[active_mode], true);
+        QueueDirect(true);
+        return;
+    }
+
+    std::lock_guard<std::mutex> write_lock(write_mutex);
+
+    if(per_led_protocol)
+    {
+        controller->MSIGPURegisterWrite(MSI_GPU_V2_REG_PER_LED_ENABLE, 0x01);
+    }
     controller->Save();
 }
