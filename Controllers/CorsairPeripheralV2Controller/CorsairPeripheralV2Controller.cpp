@@ -9,6 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -17,8 +18,10 @@
 
 using namespace std::chrono_literals;
 
-CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_handle, const char* path, std::string name)
+CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_handle, const char* path, std::string name, uint16_t vid, uint16_t pid)
 {
+    (void)vid;
+
     dev                 = dev_handle;
     location            = path;
     device_name         = name;
@@ -26,10 +29,12 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
 
     /*---------------------------------------------------------*\
     | Get PID                                                   |
-    |   If the PID is in the know wireless receivers list       |
-    |   switch the write_cmd to talk to the device and retry    |
+    |   Use the PID reported by the detector unless the device  |
+    |   is a known wireless receiver, in which case the PID     |
+    |   reported by the detector is the receiver's PID and the  |
+    |   real device PID must be queried from the device itself. |
     \*---------------------------------------------------------*/
-    unsigned int pid    = GetAddressRetry(0x12);
+    unsigned int device_pid = pid;
 
     switch(pid)
     {
@@ -39,7 +44,7 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
         case CORSAIR_SLIPSTREAM_M75_PID:
         case CORSAIR_SLIPSTREAM_IRONCLAW_SE_PID:
             write_cmd   = CORSAIR_V2_WRITE_WIRELESS_ID;
-            pid         = GetAddressRetry(0x12);
+            device_pid  = GetAddressRetry(0x12);
             break;
 
         case CORSAIR_K57_RGB_WIRED_PID:
@@ -55,32 +60,20 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
     |   behind a wireless receiver.                             |
     \*---------------------------------------------------------*/
     LOG_DEBUG("[%s] Setting write CMD to %02X for %s mode for PID %04X", device_name.c_str(),
-              write_cmd, (write_cmd == CORSAIR_V2_WRITE_WIRELESS_ID) ? "wireless" : "wired", pid);
+              write_cmd, (write_cmd == CORSAIR_V2_WRITE_WIRELESS_ID) ? "wireless" : "wired", device_pid);
 
     /*---------------------------------------------------------*\
     | Get VID                                                   |
     |   NB: this can be achieved with GetAddress(0x11) but we   |
-    |   also need to set the packet length capabilities for     |
-    |   the device being set up.                                |
+    |   also need the report length of the device being set up. |
     \*---------------------------------------------------------*/
     uint8_t buffer[CORSAIR_V2_PACKET_SIZE];
+    memset(buffer, 0, CORSAIR_V2_PACKET_SIZE);
     buffer[1] = write_cmd;
     buffer[2] = CORSAIR_V2_CMD_GET;
     buffer[3] = 0x11;
     hid_write(dev, buffer, CORSAIR_V2_WRITE_SIZE);
     int report_len      = hid_read_timeout(dev, buffer, CORSAIR_V2_PACKET_SIZE, CORSAIR_V2_TIMEOUT);
-
-    /*---------------------------------------------------------*\
-    | Devices with reports larger than 64 bytes must be written |
-    |   in full-size packets: a short write is zero padded to   |
-    |   the report length and the device takes that padding as  |
-    |   LED data.                                               |
-    \*---------------------------------------------------------*/
-    if(report_len + 1 > CORSAIR_V2_WRITE_SIZE)
-    {
-        pkt_sze         = (uint16_t)(report_len + 1);
-    }
-    LOG_DEBUG("[%s] Packet length set to %d", device_name.c_str(), pkt_sze);
 
     /*---------------------------------------------------------*\
     | NB: If the device is not found in the device list         |
@@ -91,8 +84,8 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
     for(uint16_t i = 0; i < CORSAIR_V2_DEVICE_COUNT; i++)
     {
         LOG_DEBUG("[%s] Checking PID %04X against index %d with %04X - %smatch", device_name.c_str(),
-                  pid, i, corsair_v2_device_list[i]->pid, corsair_v2_device_list[i]->pid == pid ? "" : "no ");
-        if(corsair_v2_device_list[i]->pid == pid)
+                  device_pid, i, corsair_v2_device_list[i]->pid, corsair_v2_device_list[i]->pid == device_pid ? "" : "no ");
+        if(corsair_v2_device_list[i]->pid == device_pid)
         {
             /*---------------------------------------------------------*\
             | Set device ID                                             |
@@ -113,9 +106,28 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
     if(not_found)
     {
         LOG_ERROR("[%s] device capabilities not found for PID %04X. Please creata a new device request.",
-                  device_name.c_str(), pid);
+                  device_name.c_str(), device_pid);
         return;
     }
+
+    /*---------------------------------------------------------*\
+    | Load this device's lighting control register and packet   |
+    | size                                                      |
+    \*---------------------------------------------------------*/
+    light_ctrl_reg  = corsair_v2_device_list[device_index]->light_ctrl_reg;
+    pkt_size        = corsair_v2_device_list[device_index]->pkt_size;
+
+    /*---------------------------------------------------------*\
+    | Devices with reports larger than 64 bytes must be written |
+    |   in full-size packets: a short write is zero padded to   |
+    |   the report length and the device takes that padding as  |
+    |   LED data.                                               |
+    \*---------------------------------------------------------*/
+    if(report_len + 1 > pkt_size)
+    {
+        pkt_size        = (uint16_t)std::min(report_len + 1, CORSAIR_V2_PACKET_SIZE);
+    }
+    LOG_DEBUG("[%s] Packet length set to %d", device_name.c_str(), pkt_size);
 
     /*---------------------------------------------------------*\
     | Check lighting control endpoints                          |
@@ -127,12 +139,12 @@ CorsairPeripheralV2Controller::CorsairPeripheralV2Controller(hid_device* dev_han
     \*---------------------------------------------------------*/
     if(light_ctrl == CORSAIR_V2_LIGHT_CTRL2)
     {
-        switch(pid)
+        switch(device_pid)
         {
             case CORSAIR_K100_OPTICAL_V1_PID:
             case CORSAIR_K100_OPTICAL_V2_PID:
             case CORSAIR_K100_MXRED_PID:
-                pkt_sze = CORSAIR_V2_WRITE_SIZE;
+            case CORSAIR_K65_MINI_PID:
                 LOG_DEBUG("[%s] Lighting Endpoint pinned to %02X for K100", device_name.c_str(), light_ctrl);
                 break;
 
@@ -225,9 +237,9 @@ std::string CorsairPeripheralV2Controller::GetSerialString()
 
 void CorsairPeripheralV2Controller::SetRenderMode(corsair_v2_device_mode mode)
 {
-    uint8_t buffer[CORSAIR_V2_WRITE_SIZE];
+    uint8_t buffer[CORSAIR_V2_PACKET_SIZE];
 
-    memset(buffer, 0, CORSAIR_V2_WRITE_SIZE);
+    memset(buffer, 0, CORSAIR_V2_PACKET_SIZE);
 
     /*---------------------------------------------------------*\
     | Set Mode                                                  |
@@ -237,19 +249,19 @@ void CorsairPeripheralV2Controller::SetRenderMode(corsair_v2_device_mode mode)
     buffer[3]   = CORSAIR_V2_VALUE_MODE;
     buffer[5]   = mode;
 
-    hid_write(dev, buffer, CORSAIR_V2_WRITE_SIZE);
+    hid_write(dev, buffer, pkt_size);
 
     if(!skip_reads)
     {
-        hid_read_timeout(dev, buffer, CORSAIR_V2_WRITE_SIZE, CORSAIR_V2_TIMEOUT);
+        hid_read_timeout(dev, buffer, pkt_size, CORSAIR_V2_TIMEOUT);
     }
 }
 
 void CorsairPeripheralV2Controller::LightingControl(uint8_t opt1)
 {
-    uint8_t buffer[CORSAIR_V2_WRITE_SIZE];
+    uint8_t buffer[CORSAIR_V2_PACKET_SIZE];
 
-    memset(buffer, 0, CORSAIR_V2_WRITE_SIZE);
+    memset(buffer, 0, CORSAIR_V2_PACKET_SIZE);
 
     /*---------------------------------------------------------*\
     | The Corsair command is the same for each initialisation   |
@@ -261,11 +273,11 @@ void CorsairPeripheralV2Controller::LightingControl(uint8_t opt1)
     buffer[3]   = opt1;
     buffer[5]   = 0x00;
 
-    hid_write(dev, buffer, CORSAIR_V2_WRITE_SIZE);
+    hid_write(dev, buffer, pkt_size);
 
     if(!skip_reads)
     {
-        hid_read_timeout(dev, buffer, CORSAIR_V2_WRITE_SIZE, CORSAIR_V2_TIMEOUT);
+        hid_read_timeout(dev, buffer, pkt_size, CORSAIR_V2_TIMEOUT);
     }
 }
 
@@ -304,18 +316,18 @@ unsigned int CorsairPeripheralV2Controller::GetAddressRetry(uint8_t address)
 
 unsigned int CorsairPeripheralV2Controller::GetAddress(uint8_t address)
 {
-    uint8_t buffer[CORSAIR_V2_WRITE_SIZE];
-    uint8_t read[CORSAIR_V2_WRITE_SIZE];
+    uint8_t buffer[CORSAIR_V2_PACKET_SIZE];
+    uint8_t read[CORSAIR_V2_PACKET_SIZE];
 
-    memset(buffer, 0, CORSAIR_V2_WRITE_SIZE);
-    memset(read, 0, CORSAIR_V2_WRITE_SIZE);
+    memset(buffer, 0, CORSAIR_V2_PACKET_SIZE);
+    memset(read, 0, CORSAIR_V2_PACKET_SIZE);
 
     buffer[1]   = write_cmd;
     buffer[2]   = CORSAIR_V2_CMD_GET;
     buffer[3]   = address;
 
-    hid_write(dev, buffer, CORSAIR_V2_WRITE_SIZE);
-    hid_read_timeout(dev, read, CORSAIR_V2_WRITE_SIZE, CORSAIR_V2_TIMEOUT);
+    hid_write(dev, buffer, pkt_size);
+    hid_read_timeout(dev, read, pkt_size, CORSAIR_V2_TIMEOUT);
 
     unsigned int temp = (unsigned int)(read[6] << 24 | read[5] << 16 | read[4] << 8 | read[3]);
     LOG_DEBUG("[%s] GetAddress %02X - %02X %02X - %02X %02X %02X %02X   %02X %02X %02X %02X", device_name.c_str(),
@@ -333,20 +345,20 @@ unsigned int CorsairPeripheralV2Controller::GetAddress(uint8_t address)
 
 unsigned char CorsairPeripheralV2Controller::StartTransaction(uint8_t opt1)
 {
-    uint8_t buffer[CORSAIR_V2_WRITE_SIZE];
+    uint8_t buffer[CORSAIR_V2_PACKET_SIZE];
 
-    memset(buffer, 0, CORSAIR_V2_WRITE_SIZE);
+    memset(buffer, 0, CORSAIR_V2_PACKET_SIZE);
 
     buffer[1]   = write_cmd;
     buffer[2]   = CORSAIR_V2_CMD_START_TX;
     buffer[3]   = opt1;
     buffer[4]   = light_ctrl;
 
-    hid_write(dev, buffer, CORSAIR_V2_WRITE_SIZE);
+    hid_write(dev, buffer, pkt_size);
 
     if(!skip_reads)
     {
-        hid_read_timeout(dev, buffer, CORSAIR_V2_WRITE_SIZE, CORSAIR_V2_TIMEOUT);
+        hid_read_timeout(dev, buffer, pkt_size, CORSAIR_V2_TIMEOUT);
     }
 
     return buffer[2];
@@ -354,20 +366,20 @@ unsigned char CorsairPeripheralV2Controller::StartTransaction(uint8_t opt1)
 
 void CorsairPeripheralV2Controller::StopTransaction(uint8_t opt1)
 {
-    uint8_t buffer[CORSAIR_V2_WRITE_SIZE];
+    uint8_t buffer[CORSAIR_V2_PACKET_SIZE];
 
-    memset(buffer, 0, CORSAIR_V2_WRITE_SIZE);
+    memset(buffer, 0, CORSAIR_V2_PACKET_SIZE);
 
     buffer[1]   = write_cmd;
     buffer[2]   = CORSAIR_V2_CMD_STOP_TX;
     buffer[3]   = 0x01;
     buffer[4]   = opt1;
 
-    hid_write(dev, buffer, CORSAIR_V2_WRITE_SIZE);
+    hid_write(dev, buffer, pkt_size);
 
     if(!skip_reads)
     {
-        hid_read_timeout(dev, buffer, CORSAIR_V2_WRITE_SIZE, CORSAIR_V2_TIMEOUT);
+        hid_read_timeout(dev, buffer, pkt_size, CORSAIR_V2_TIMEOUT);
     }
 }
 
@@ -387,41 +399,41 @@ void CorsairPeripheralV2Controller::ClearPacketBuffer()
 
     do
     {
-        result = hid_read_timeout(dev, buffer, CORSAIR_V2_WRITE_SIZE, CORSAIR_V2_TIMEOUT_SHORT);
+        result = hid_read_timeout(dev, buffer, pkt_size, CORSAIR_V2_TIMEOUT_SHORT);
     }
     while(result > 0);
 }
 
 void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
 {
-    const uint8_t offset1   = 8;
-    const uint8_t offset2   = 4;
-    uint16_t remaining      = data_size;
+    const corsair_v2_device*    dev_data    = GetDeviceData();
+    const uint8_t               offset1     = 8;
+    const uint8_t               offset2     = 4;
+    uint16_t                    remaining   = data_size;
+    uint8_t                     buffer[CORSAIR_V2_PACKET_SIZE];
+    uint8_t                     response[CORSAIR_V2_PACKET_SIZE];
 
-    /*---------------------------------------------------------*\
-    | pkt_sze is a report of up to CORSAIR_V2_PACKET_SIZE bytes |
-    |   plus the report ID                                      |
-    \*---------------------------------------------------------*/
-    uint8_t buffer[CORSAIR_V2_PACKET_SIZE + 1];
-    uint8_t response[CORSAIR_V2_PACKET_SIZE];
-    memset(buffer, 0, sizeof(buffer));
+    memset(buffer, 0, CORSAIR_V2_PACKET_SIZE);
     memset(response, 0, CORSAIR_V2_PACKET_SIZE);
 
-    ClearPacketBuffer();
-    StartTransaction(0);
+    //ClearPacketBuffer();
+    StartTransaction(1);
+
     /*---------------------------------------------------------*\
     | Set the data header in packet 1 with the data length      |
     |   signaling how many packets to expect to the device      |
     \*---------------------------------------------------------*/
     buffer[1]               = write_cmd;
     buffer[2]               = CORSAIR_V2_CMD_BLK_W1;
+    buffer[3]               = 1;
     buffer[4]               = data_size & 0xFF;
     buffer[5]               = data_size >> 8;
 
     /*---------------------------------------------------------*\
     | Check if the data needs more than 1 packet                |
     \*---------------------------------------------------------*/
-    uint16_t copy_bytes     = pkt_sze - offset1;
+    uint16_t copy_bytes     = pkt_size - offset1;
+
     if(remaining < copy_bytes)
     {
         copy_bytes          = remaining;
@@ -429,7 +441,23 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
 
     memcpy(&buffer[offset1], &data[0], copy_bytes);
 
-    hid_write(dev, buffer, pkt_sze);
+    /*---------------------------------------------------------*\
+    | A device whose output report is shorter than the size     |
+    |   read from the GET reply rejects the write. Retry once   |
+    |   so a transient error does not downgrade the device,     |
+    |   then fall back to the default write size for good and   |
+    |   rebuild packet 1                                        |
+    \*---------------------------------------------------------*/
+    if(hid_write(dev, buffer, pkt_size) < 0 && pkt_size > CORSAIR_V2_WRITE_SIZE
+       && hid_write(dev, buffer, pkt_size) < 0)
+    {
+        LOG_WARNING("[%s] %d byte write rejected twice, using %d byte packets", device_name.c_str(), pkt_size, CORSAIR_V2_WRITE_SIZE);
+        pkt_size            = CORSAIR_V2_WRITE_SIZE;
+        copy_bytes          = std::min<uint16_t>(remaining, pkt_size - offset1);
+        memset(&buffer[offset1], 0, sizeof(buffer) - offset1);
+        memcpy(&buffer[offset1], &data[0], copy_bytes);
+        hid_write(dev, buffer, pkt_size);
+    }
 
     if(!skip_reads)
     {
@@ -438,7 +466,7 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
         | back to back.  Wait for the transaction response      |
         | before sending the next packet.                       |
         \*-----------------------------------------------------*/
-        if(hid_read_timeout(dev, response, CORSAIR_V2_WRITE_SIZE, CORSAIR_V2_TIMEOUT_SHORT) <= 0)
+        if(hid_read_timeout(dev, response, pkt_size, CORSAIR_V2_TIMEOUT_SHORT) <= 0)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(CORSAIR_V2_WRITE_PACE));
         }
@@ -446,7 +474,7 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
 
     remaining              -= copy_bytes;
     buffer[2]               = CORSAIR_V2_CMD_BLK_WN;
-    copy_bytes              = pkt_sze - offset2;
+    copy_bytes              = pkt_size - offset2;
 
     /*---------------------------------------------------------*\
     | Send the remaining packets                                |
@@ -462,7 +490,7 @@ void CorsairPeripheralV2Controller::SetLEDs(uint8_t *data, uint16_t data_size)
 
         memcpy(&buffer[offset2], &data[index], copy_bytes);
 
-        hid_write(dev, buffer, pkt_sze);
+        hid_write(dev, buffer, pkt_size);
 
         /*-----------------------------------------------------*\
         | Pace the transfer: the device does not acknowledge    |

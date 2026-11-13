@@ -86,4 +86,5 @@ private:
     i2c_smbus_interface *   bus;
     msi_gpu_dev_id          dev;
     std::string             name;
+    bool                    retry_recovery_logged;
 };

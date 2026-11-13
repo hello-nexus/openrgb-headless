@@ -250,6 +250,8 @@ PACK(struct razer_report
 
 /*---------------------------------------------------------*\
 | Razer ARGB Report Type (taken from OpenRazer)             |
+|   Sized for the wireless controller report, the wired     |
+|   controller sends only the length of its own report      |
 \*---------------------------------------------------------*/
 PACK(struct razer_argb_report
 {
@@ -259,8 +261,18 @@ PACK(struct razer_argb_report
     unsigned char channel_2;
     unsigned char pad;
     unsigned char last_idx;
-    unsigned char color_data[315];
+    unsigned char color_data[375];
 });
+
+/*---------------------------------------------------------*\
+| Outcome of a wireless ARGB controller command             |
+\*---------------------------------------------------------*/
+enum razer_wireless_argb_reply
+{
+    RAZER_WIRELESS_ARGB_NO_REPLY,
+    RAZER_WIRELESS_ARGB_FAILED,
+    RAZER_WIRELESS_ARGB_SUCCESS,
+};
 
 class RazerController
 {
@@ -287,6 +299,7 @@ public:
     void                    SetLEDs(RGBColor* colors);
     void                    InvalidateCustomFrame();
     void                    SetAddressableZoneSizes(unsigned char zone_1_size, unsigned char zone_2_size, unsigned char zone_3_size, unsigned char zone_4_size, unsigned char zone_5_size, unsigned char zone_6_size);
+    unsigned char           GetAddressableDeviceZoneSize(unsigned int zone_idx);
 
     void                    SetModeBreathingRandom();
     void                    SetModeBreathingOneColor(unsigned char red, unsigned char grn, unsigned char blu);
@@ -313,6 +326,7 @@ private:
     hid_device*             dev;
     hid_device*             dev_argb;
     unsigned short          dev_pid;
+    size_t                  argb_report_size;
 
     /*---------------------------------------------------------*\
     | Device-specific protocol settings                         |
@@ -355,6 +369,31 @@ private:
     DeviceGuardManager*     guard_manager_ptr;
 
     /*---------------------------------------------------------*\
+    | Wireless ARGB controller channel sizes, as reported by    |
+    | the device and as last sent to it, and the last frame set |
+    | for the resend Synapse does                               |
+    \*---------------------------------------------------------*/
+    unsigned char           argb_zone_sizes[3];
+    unsigned char           argb_device_zone_sizes[3];
+    std::mutex              argb_frame_mutex;
+    razer_argb_report       argb_last_frames[3];
+    bool                    argb_last_frames_valid;
+    std::chrono::steady_clock::time_point argb_last_frame_time;
+
+    /*---------------------------------------------------------*\
+    | Wireless ARGB controller rolling transaction ID, the lock |
+    | that keeps a command and its reply together, the strings  |
+    | read once at setup, and the custom frame effect retry     |
+    | state                                                     |
+    \*---------------------------------------------------------*/
+    std::atomic<unsigned int> argb_transaction_id;
+    std::recursive_mutex    argb_query_mutex;
+    std::string             argb_firmware_string;
+    std::string             argb_serial_string;
+    std::chrono::steady_clock::time_point argb_custom_frame_retry_time;
+    unsigned int            argb_mode_sends;
+
+    /*---------------------------------------------------------*\
     | Private functions based on OpenRazer                      |
     \*---------------------------------------------------------*/
     unsigned char           razer_calculate_crc(razer_report* report);
@@ -395,7 +434,7 @@ private:
 
     unsigned char           razer_get_device_mode();
     std::string             razer_get_firmware();
-    std::string             razer_get_serial();
+    std::string             razer_get_serial(bool* replied = nullptr);
     void                    razer_get_keyboard_info(unsigned char* layout, unsigned char* variant);
 
     void                    razer_set_brightness(unsigned char brightness);
@@ -408,6 +447,13 @@ private:
     void                    razer_set_mode_breathing_two_colors(unsigned char r1, unsigned char g1, unsigned char b1, unsigned char r2, unsigned char g2, unsigned char b2);
     void                    razer_set_mode_custom();
     void                    SetLEDsHuntsmanV2Analog(RGBColor* colors);
+    void                    SetLEDsWirelessARGB(RGBColor* colors);
+    bool                    razer_get_wireless_argb_zone_sizes();
+    unsigned char           razer_wireless_argb_next_transaction_id();
+    razer_wireless_argb_reply razer_wireless_argb_command(razer_report* report, razer_report* response_report, unsigned int attempts);
+    razer_wireless_argb_reply razer_wireless_argb_set_software_mode();
+    void                    razer_wireless_argb_init();
+    void                    razer_wireless_argb_apply_custom_frame();
     void                    razer_set_mode_none();
     void                    razer_set_mode_spectrum_cycle();
     void                    razer_set_mode_static(unsigned char red, unsigned char grn, unsigned char blu);

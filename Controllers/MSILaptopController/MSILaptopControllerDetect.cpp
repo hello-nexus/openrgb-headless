@@ -239,6 +239,22 @@ static const MSILaptopModel msi_laptop_models[] =
     },
     {
         "Micro-Star International Co., Ltd.",
+        "Raider A18 HX A7VHG",
+
+        /* Keyboard layout (shares the Raider A18 chassis / keyboard) */
+        msi_raider_a18_klc_leds,
+        MSI_LAPTOP_ARRAY_SIZE(msi_raider_a18_klc_leds),
+        MSI_LAPTOP_KLC_MATRIX_HEIGHT,
+        MSI_LAPTOP_KLC_MATRIX_WIDTH,
+        (const unsigned int*)msi_raider_a18_klc_matrix_map,
+
+        /* Lightbar layout */
+        msi_raider_a18_alc_leds,
+        MSI_LAPTOP_ARRAY_SIZE(msi_raider_a18_alc_leds),
+        MSI_LAPTOP_ALC_LIGHTBAR_LEDS,
+    },
+    {
+        "Micro-Star International Co., Ltd.",
         "Raider 18 HX AI A2XWIG",
 
         /* Keyboard layout (shares the Raider 18 chassis / keyboard) */
@@ -327,7 +343,7 @@ DetectedControllers DetectMSILaptop(hid_device_info* info, const std::string& na
     return(detected_controllers);
 }
 
-REGISTER_HID_DETECTOR("MSI Laptop Keyboard", DetectMSILaptop, STEELSERIES_VID, STEELSERIES_MSI_RAIDER_A18_KLC_PID);
+REGISTER_HID_DETECTOR_I("MSI Laptop Keyboard", DetectMSILaptop, STEELSERIES_VID, STEELSERIES_MSI_RAIDER_A18_KLC_PID, 0);
 REGISTER_HID_DETECTOR_I("MSI Laptop Lightbar", DetectMSILaptop, STEELSERIES_VID, STEELSERIES_MSI_RAIDER_A18_ALC_PID, 0);
 REGISTER_HID_DETECTOR_I("MSI GE68HX Keyboard", DetectMSILaptop, STEELSERIES_VID, STEELSERIES_GE68HX_KEYBOARD_PID, 0);
 REGISTER_HID_DETECTOR_I("MSI GE68HX Lightbar", DetectMSILaptop, STEELSERIES_VID, STEELSERIES_GE68HX_LIGHTBAR_PID, 0);
