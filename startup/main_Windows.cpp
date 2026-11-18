@@ -514,6 +514,35 @@ void InitializeTimerResolutionThreadFunction()
 }
 
 /*---------------------------------------------------------*\
+| StopEventThreadFunction                                   |
+|                                                           |
+|   A console-less child has no Ctrl+C or service control   |
+|   channel, so the parent signals a named event to request |
+|   the same orderly stop a service stop does, letting      |
+|   controller destructors run                              |
+\*---------------------------------------------------------*/
+static void StopEventThreadFunction()
+{
+    char name[64];
+    snprintf(name, sizeof(name), "Local\\OpenRGBHeadlessStop-%lu", GetCurrentProcessId());
+
+    HANDLE stop_event = CreateEventA(NULL, TRUE, FALSE, name);
+
+    if(stop_event == NULL)
+    {
+        return;
+    }
+
+    if(WaitForSingleObject(stop_event, INFINITE) == WAIT_OBJECT_0)
+    {
+        service_stop_requested = true;
+        service_stop_cv.notify_one();
+    }
+
+    CloseHandle(stop_event);
+}
+
+/*---------------------------------------------------------*\
 | WaitWhileServerOnline                                     |
 |                                                           |
 |   Wait while NetworkServer is online and return only when |
@@ -576,6 +605,12 @@ static int common_main(int argc, char* argv[])
         | return flags                                      |
         \*-------------------------------------------------*/
         ret_flags = cli_pre_detection(argc, argv);
+
+        if(ret_flags & RET_FLAG_START_SERVER)
+        {
+            std::thread * stop_event_thread = new std::thread(StopEventThreadFunction);
+            stop_event_thread->detach();
+        }
     }
 
     /*-----------------------------------------------------*\
