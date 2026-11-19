@@ -533,33 +533,20 @@ void RGBController_SkyloongGK68HEPro::SetupZones()
         leds.push_back(keyboard_led);
     }
 
-    if(layout->has_side_light)
-    {
-        zone side_zone;
-        side_zone.name              = "Front Light Strip";
-        side_zone.type              = ZONE_TYPE_SINGLE;
-        side_zone.leds_min          = 1;
-        side_zone.leds_max          = 1;
-        side_zone.leds_count        = 1;
-        zones.push_back(side_zone);
-
-        led side_led;
-        side_led.name               = "Front Light Strip";
-        side_led.value              = 0xFF;
-        leds.push_back(side_led);
-    }
-
     SetupColors();
 }
 
-void RGBController_SkyloongGK68HEPro::UpdateSideLight()
+/*---------------------------------------------------------*\
+| The front light strip has no per-LED addressing, so it    |
+| mirrors the key color while Nexus drives the keys.        |
+\*---------------------------------------------------------*/
+void RGBController_SkyloongGK68HEPro::UpdateSideLight(RGBColor side_color)
 {
     if(!layout->has_side_light)
     {
         return;
     }
 
-    RGBColor side_color = colors[layout->led_count];
     auto     now        = std::chrono::steady_clock::now();
 
     if(side_light_valid
@@ -577,8 +564,6 @@ void RGBController_SkyloongGK68HEPro::UpdateSideLight()
 
 void RGBController_SkyloongGK68HEPro::DeviceUpdateLEDs()
 {
-    UpdateSideLight();
-
     if(modes[active_mode].value == ROYUAN_SKYLOONG_GK68HE_PRO_EFFECT_CUSTOM)
     {
         if(LayerColorsChanged())
@@ -603,6 +588,11 @@ void RGBController_SkyloongGK68HEPro::DeviceUpdateLEDs()
     unsigned char blu = RGBGetBValue(colors[0]);
 
     controller->SetColor(red, grn, blu);
+
+    if(modes[active_mode].value == ROYUAN_SKYLOONG_GK68HE_PRO_EFFECT_DIRECT)
+    {
+        UpdateSideLight(colors[0]);
+    }
 }
 
 void RGBController_SkyloongGK68HEPro::UpdateZoneLEDs(int /*zone*/)

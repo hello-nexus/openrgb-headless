@@ -54,7 +54,7 @@ private:
 
     void SendCustomLayer();
     bool LayerColorsChanged();
-    void UpdateSideLight();
+    void UpdateSideLight(RGBColor side_color);
 
     unsigned char flashed_colors[ROYUAN_SKYLOONG_GK68HE_PRO_USERPIC_SLOTS * 3];
     bool          layer_flashed = false;
