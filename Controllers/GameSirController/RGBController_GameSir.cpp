@@ -11,12 +11,12 @@
 
 #include "RGBController_GameSir.h"
 
-RGBController_GameSir::RGBController_GameSir(GameSirController* controller_ptr)
+RGBController_GameSir::RGBController_GameSir(GameSirController* controller_ptr, const std::string& device_name, const std::string& device_vendor)
 {
     controller  = controller_ptr;
 
-    name        = "GameSir Nova 2 Lite";
-    vendor      = "GameSir";
+    name        = device_name;
+    vendor      = device_vendor;
     type        = DEVICE_TYPE_GAMEPAD;
     description = "GameSir RGB Device";
     location    = controller->GetLocation();

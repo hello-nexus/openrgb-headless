@@ -14,7 +14,7 @@
 
 #define NA 0xFFFFFFFF
 
-static unsigned int matrix_map[5][16] =
+static const unsigned int matrix_map[5][16] =
 {
     { 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, NA, NA},
     {14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, NA, 28},
@@ -32,7 +32,7 @@ static const unsigned char led_slots[GK68HE_PRO_LED_COUNT] =
      4, 10, 16, 40, 58, 64, 70, 76, 82, 88
 };
 
-static const char* led_names[GK68HE_PRO_LED_COUNT] =
+static const char* const led_names[GK68HE_PRO_LED_COUNT] =
 {
     KEY_EN_ESCAPE,          KEY_EN_1,           KEY_EN_2,           KEY_EN_3,           KEY_EN_4,
     KEY_EN_5,               KEY_EN_6,           KEY_EN_7,           KEY_EN_8,           KEY_EN_9,
@@ -50,6 +50,19 @@ static const char* led_names[GK68HE_PRO_LED_COUNT] =
     KEY_EN_RIGHT_FUNCTION,  KEY_EN_RIGHT_CONTROL,KEY_EN_LEFT_ARROW, KEY_EN_DOWN_ARROW,  KEY_EN_RIGHT_ARROW
 };
 
+const GK68HEProLayout gk68he_pro_layout =
+{
+    "Skyloong GK68HE Pro",
+    "Skyloong",
+    "Skyloong GK68HE Pro lighting controller",
+    GK68HE_PRO_LED_COUNT,
+    5,
+    16,
+    &matrix_map[0][0],
+    led_slots,
+    led_names
+};
+
 /**------------------------------------------------------------------*\
     @name Skyloong GK68HE Pro
     @category Keyboard
@@ -63,14 +76,15 @@ static const char* led_names[GK68HE_PRO_LED_COUNT] =
         keyboards using USB ID 3151:5029.
 \*-------------------------------------------------------------------*/
 
-RGBController_SkyloongGK68HEPro::RGBController_SkyloongGK68HEPro(RoyuanKeyboardController* controller_ptr)
+RGBController_SkyloongGK68HEPro::RGBController_SkyloongGK68HEPro(RoyuanKeyboardController* controller_ptr, const GK68HEProLayout* layout_ptr)
 {
     controller                              = controller_ptr;
+    layout                                  = layout_ptr;
 
-    name                                    = "Skyloong GK68HE Pro";
-    vendor                                  = "Skyloong";
+    name                                    = layout->name;
+    vendor                                  = layout->vendor;
     type                                    = DEVICE_TYPE_KEYBOARD;
-    description                             = "Skyloong GK68HE Pro lighting controller";
+    description                             = layout->description;
     serial                                  = controller->GetSerial();
     location                                = controller->GetLocation();
 
@@ -480,7 +494,7 @@ RGBController_SkyloongGK68HEPro::RGBController_SkyloongGK68HEPro(RoyuanKeyboardC
 
     SetupZones();
 
-    for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+    for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
     {
         colors[led_index] = seed_color;
 
@@ -504,17 +518,17 @@ void RGBController_SkyloongGK68HEPro::SetupZones()
     zone keyboard_zone;
     keyboard_zone.name              = "Keyboard";
     keyboard_zone.type              = ZONE_TYPE_MATRIX;
-    keyboard_zone.leds_min          = GK68HE_PRO_LED_COUNT;
-    keyboard_zone.leds_max          = GK68HE_PRO_LED_COUNT;
-    keyboard_zone.leds_count        = GK68HE_PRO_LED_COUNT;
-    keyboard_zone.matrix_map.Set(5, 16, (unsigned int*)&matrix_map);
+    keyboard_zone.leds_min          = layout->led_count;
+    keyboard_zone.leds_max          = layout->led_count;
+    keyboard_zone.leds_count        = layout->led_count;
+    keyboard_zone.matrix_map.Set(layout->matrix_rows, layout->matrix_cols, (unsigned int*)layout->matrix);
     zones.push_back(keyboard_zone);
 
-    for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+    for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
     {
         led keyboard_led;
-        keyboard_led.name           = led_names[led_index];
-        keyboard_led.value          = led_slots[led_index];
+        keyboard_led.name           = layout->led_names[led_index];
+        keyboard_led.value          = layout->slots[led_index];
         leds.push_back(keyboard_led);
     }
 
@@ -529,7 +543,7 @@ void RGBController_SkyloongGK68HEPro::DeviceUpdateLEDs()
         {
             SendCustomLayer();
 
-            for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+            for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
             {
                 flashed_colors[(led_index * 3) + 0] = RGBGetRValue(colors[led_index]);
                 flashed_colors[(led_index * 3) + 1] = RGBGetGValue(colors[led_index]);
@@ -618,7 +632,7 @@ bool RGBController_SkyloongGK68HEPro::LayerColorsChanged()
         return true;
     }
 
-    for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+    for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
     {
         if(RGBGetRValue(colors[led_index]) != flashed_colors[(led_index * 3) + 0]
         || RGBGetGValue(colors[led_index]) != flashed_colors[(led_index * 3) + 1]
@@ -635,9 +649,9 @@ void RGBController_SkyloongGK68HEPro::SendCustomLayer()
 {
     unsigned char slot_colors[ROYUAN_SKYLOONG_GK68HE_PRO_USERPIC_SLOTS * 3] = { 0x00 };
 
-    for(unsigned int led_index = 0; led_index < GK68HE_PRO_LED_COUNT; led_index++)
+    for(unsigned int led_index = 0; led_index < layout->led_count; led_index++)
     {
-        unsigned int slot = led_slots[led_index];
+        unsigned int slot = layout->slots[led_index];
 
         slot_colors[(slot * 3) + 0] = RGBGetRValue(colors[led_index]);
         slot_colors[(slot * 3) + 1] = RGBGetGValue(colors[led_index]);

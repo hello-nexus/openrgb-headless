@@ -17,7 +17,7 @@
 class RGBController_GameSir : public RGBController
 {
 public:
-    RGBController_GameSir(GameSirController* controller_ptr);
+    RGBController_GameSir(GameSirController* controller_ptr, const std::string& device_name = "GameSir Nova 2 Lite", const std::string& device_vendor = "GameSir");
     ~RGBController_GameSir();
 
     void        SetupZones();
