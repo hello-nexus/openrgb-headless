@@ -53,4 +53,4 @@ DetectedControllers DetectGameSirControllers(hid_device_info* info, const std::s
 REGISTER_HID_DETECTOR_IPU("GameSir Nova 2 Lite", DetectGameSirControllers, GAMESIR_VID, GAMESIR_NOVA_LITE_2_PID, 2, 0xFF7A, 0x0001);
 REGISTER_HID_DETECTOR_IPU("GameSir Nova 2 Lite (Wireless)", DetectGameSirControllers, GAMESIR_VID, GAMESIR_NOVA_LITE_2_WIRELESS_PID, 2, 0xFF7A, 0x0001);
 REGISTER_HID_DETECTOR_IPU("Red Magic Cyber Gamepad", DetectRedMagicCyberGamepadControllers, GAMESIR_VID, REDMAGIC_CYBER_GAMEPAD_PID, 2, 0xFF7A, 0x0001);
-REGISTER_HID_DETECTOR_IPU("Red Magic Cyber Gamepad (2.4G Dongle)", DetectRedMagicCyberGamepadControllers, GAMESIR_VID, REDMAGIC_CYBER_GAMEPAD_DONGLE_PID, 2, 0xFF7A, 0x0001);
+REGISTER_HID_DETECTOR_IPU("Red Magic Cyber Gamepad", DetectRedMagicCyberGamepadControllers, GAMESIR_VID, REDMAGIC_CYBER_GAMEPAD_DONGLE_PID, 2, 0xFF7A, 0x0001);
