@@ -124,5 +124,6 @@ const GK68HEProLayout vgn_neon75he_layout =
     15,
     &neon75he_matrix_map[0][0],
     neon75he_slots,
-    neon75he_names
+    neon75he_names,
+    true
 };

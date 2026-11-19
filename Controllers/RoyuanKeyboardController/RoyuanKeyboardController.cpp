@@ -475,6 +475,35 @@ bool RoyuanKeyboardController::SetUserPic(const unsigned char* slot_colors, unsi
 }
 
 /*---------------------------------------------------------*\
+| Side light (edge strip): same report layout as LEDPARAM   |
+| under its own command. Static mode, one color.            |
+\*---------------------------------------------------------*/
+bool RoyuanKeyboardController::SetSideLight(unsigned char red, unsigned char green, unsigned char blue)
+{
+    unsigned char buffer[ROYUAN_REPORT_LENGTH + 1] = { 0x00 };
+
+    buffer[1] = ROYUAN_COMMAND_SET_SIDE_LED_PARAMS;
+    buffer[2] = ROYUAN_AKKO_EFFECT_STATIC;
+    buffer[3] = 0x00;
+    buffer[4] = profile.brightness_max;
+    buffer[5] = profile.solid_option_default;
+    buffer[6] = red;
+    buffer[7] = green;
+    buffer[8] = blue;
+    buffer[9] = CalculateChecksum(&buffer[1], 8);
+
+    int result = hid_send_feature_report(dev, buffer, sizeof(buffer));
+
+    if(result < 0)
+    {
+        LOG_ERROR("[ROYUAN]: SET_SLEDPARAM failed: %ls", hid_error(dev));
+        return(false);
+    }
+
+    return(true);
+}
+
+/*---------------------------------------------------------*\
 | Paced profiles: sends the latest update 500 ms after it   |
 | was asked for and 1.5 s after the previous one at the     |
 | earliest. Updates asked for meanwhile are merged.         |

@@ -60,7 +60,8 @@ const GK68HEProLayout gk68he_pro_layout =
     16,
     &matrix_map[0][0],
     led_slots,
-    led_names
+    led_names,
+    false
 };
 
 /**------------------------------------------------------------------*\
@@ -532,11 +533,52 @@ void RGBController_SkyloongGK68HEPro::SetupZones()
         leds.push_back(keyboard_led);
     }
 
+    if(layout->has_side_light)
+    {
+        zone side_zone;
+        side_zone.name              = "Front Light Strip";
+        side_zone.type              = ZONE_TYPE_SINGLE;
+        side_zone.leds_min          = 1;
+        side_zone.leds_max          = 1;
+        side_zone.leds_count        = 1;
+        zones.push_back(side_zone);
+
+        led side_led;
+        side_led.name               = "Front Light Strip";
+        side_led.value              = 0xFF;
+        leds.push_back(side_led);
+    }
+
     SetupColors();
+}
+
+void RGBController_SkyloongGK68HEPro::UpdateSideLight()
+{
+    if(!layout->has_side_light)
+    {
+        return;
+    }
+
+    RGBColor side_color = colors[layout->led_count];
+    auto     now        = std::chrono::steady_clock::now();
+
+    if(side_light_valid
+    && (side_color == side_light_sent || now - side_light_time < std::chrono::milliseconds(1000)))
+    {
+        return;
+    }
+
+    controller->SetSideLight(RGBGetRValue(side_color), RGBGetGValue(side_color), RGBGetBValue(side_color));
+
+    side_light_sent  = side_color;
+    side_light_valid = true;
+    side_light_time  = now;
 }
 
 void RGBController_SkyloongGK68HEPro::DeviceUpdateLEDs()
 {
+    UpdateSideLight();
+
     if(modes[active_mode].value == ROYUAN_SKYLOONG_GK68HE_PRO_EFFECT_CUSTOM)
     {
         if(LayerColorsChanged())

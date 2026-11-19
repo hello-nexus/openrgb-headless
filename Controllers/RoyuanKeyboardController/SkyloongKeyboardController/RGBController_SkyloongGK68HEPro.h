@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include "RGBController.h"
 #include "RoyuanKeyboardController.h"
 
@@ -27,6 +28,7 @@ struct GK68HEProLayout
     const unsigned int*         matrix;
     const unsigned char*        slots;
     const char* const*          led_names;
+    bool                        has_side_light;
 };
 
 extern const GK68HEProLayout gk68he_pro_layout;
@@ -52,9 +54,13 @@ private:
 
     void SendCustomLayer();
     bool LayerColorsChanged();
+    void UpdateSideLight();
 
     unsigned char flashed_colors[ROYUAN_SKYLOONG_GK68HE_PRO_USERPIC_SLOTS * 3];
     bool          layer_flashed = false;
+    RGBColor      side_light_sent = 0;
+    bool          side_light_valid = false;
+    std::chrono::steady_clock::time_point side_light_time;
 
     std::vector<unsigned char> mode_options;
 };
