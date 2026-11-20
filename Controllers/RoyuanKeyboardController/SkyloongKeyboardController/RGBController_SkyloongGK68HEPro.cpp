@@ -10,6 +10,7 @@
 \*---------------------------------------------------------*/
 
 #include <algorithm>
+#include <cstdlib>
 #include "RGBControllerKeyNames.h"
 #include "RGBController_SkyloongGK68HEPro.h"
 
@@ -579,55 +580,84 @@ void RGBController_SkyloongGK68HEPro::UpdateSideLight(RGBColor side_color)
 
 void RGBController_SkyloongGK68HEPro::SideLightThread()
 {
-    const std::chrono::milliseconds min_interval(100);
-    const std::chrono::milliseconds max_backoff(2000);
+    /*-----------------------------------------------------*\
+    | Every strip write restarts its effect and shows as a   |
+    | blink, so writes are few: a capped rate, a deadband on |
+    | small color moves, and one exact write once the color  |
+    | settles. A device that stops answering ends the writes.|
+    \*-----------------------------------------------------*/
+    const std::chrono::milliseconds min_interval(250);
+    const std::chrono::milliseconds settle_time(300);
+    const int                       deadband          = 12;
+    const unsigned int              max_failures      = 3;
 
-    std::chrono::milliseconds interval  = min_interval;
-    bool                      have_sent = false;
-    RGBColor                  last_sent = 0;
+    bool         have_sent = false;
+    RGBColor     last_sent = 0;
+    unsigned int failures  = 0;
 
     std::unique_lock<std::mutex> lock(side_light_mutex);
 
-    while(true)
+    while(side_light_running)
     {
-        side_light_cv.wait(lock, [this]{ return(side_light_dirty || !side_light_running); });
-
-        if(!side_light_running)
+        if(!side_light_dirty)
         {
-            break;
+            side_light_cv.wait(lock, [this]{ return(side_light_dirty || !side_light_running); });
+            continue;
         }
 
         RGBColor color   = side_light_pending;
         side_light_dirty = false;
 
-        if(have_sent && color == last_sent)
+        int delta = 0;
+
+        if(have_sent)
         {
-            continue;
+            delta = std::max({ std::abs((int)RGBGetRValue(color) - (int)RGBGetRValue(last_sent)),
+                               std::abs((int)RGBGetGValue(color) - (int)RGBGetGValue(last_sent)),
+                               std::abs((int)RGBGetBValue(color) - (int)RGBGetBValue(last_sent)) });
+
+            if(delta == 0)
+            {
+                continue;
+            }
+
+            if(delta < deadband)
+            {
+                /*-----------------------------------------*\
+                | Small move: only apply it once the color   |
+                | has stopped changing for the settle time.  |
+                \*-----------------------------------------*/
+                if(side_light_cv.wait_for(lock, settle_time, [this]{ return(side_light_dirty || !side_light_running); }))
+                {
+                    continue;
+                }
+
+                color = side_light_pending;
+            }
         }
 
         lock.unlock();
 
         bool ok = controller->SetSideLight(RGBGetRValue(color), RGBGetGValue(color), RGBGetBValue(color));
 
+        lock.lock();
+
         if(ok)
         {
             last_sent = color;
             have_sent = true;
-            interval  = min_interval;
+            failures  = 0;
+        }
+        else if(++failures >= max_failures)
+        {
+            break;
         }
         else
-        {
-            interval = std::min(interval * 2, max_backoff);
-        }
-
-        lock.lock();
-
-        if(!ok)
         {
             side_light_dirty = true;
         }
 
-        side_light_cv.wait_for(lock, interval, [this]{ return(!side_light_running); });
+        side_light_cv.wait_for(lock, min_interval, [this]{ return(!side_light_running); });
     }
 }
 

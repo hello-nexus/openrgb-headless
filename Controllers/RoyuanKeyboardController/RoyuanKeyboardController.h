@@ -173,6 +173,7 @@ private:
     std::string             device_name;
     std::string             location;
     hid_device*             dev;
+    std::mutex              feature_mutex;
     RoyuanKeyboardProfile   profile;
     bool                    valid;
 

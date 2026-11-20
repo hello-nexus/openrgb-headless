@@ -415,6 +415,7 @@ bool RoyuanKeyboardController::SendDirectColor()
     buffer[4] = current_blue;
     buffer[8] = CalculateChecksum(&buffer[1], 7);
 
+    std::lock_guard<std::mutex> lock(feature_mutex);
     int result = hid_send_feature_report(dev, buffer, sizeof(buffer));
 
     if(result < 0)
@@ -492,6 +493,7 @@ bool RoyuanKeyboardController::SetSideLight(unsigned char red, unsigned char gre
     buffer[8] = blue;
     buffer[9] = CalculateChecksum(&buffer[1], 8);
 
+    std::lock_guard<std::mutex> lock(feature_mutex);
     int result = hid_send_feature_report(dev, buffer, sizeof(buffer));
 
     if(result < 0)
