@@ -9,6 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
+#include <algorithm>
 #include "RGBControllerKeyNames.h"
 #include "RGBController_SkyloongGK68HEPro.h"
 
@@ -511,6 +512,17 @@ RGBController_SkyloongGK68HEPro::~RGBController_SkyloongGK68HEPro()
 {
     Shutdown();
 
+    {
+        std::lock_guard<std::mutex> lock(side_light_mutex);
+        side_light_running = false;
+        side_light_cv.notify_all();
+    }
+
+    if(side_light_thread.joinable())
+    {
+        side_light_thread.join();
+    }
+
     delete controller;
 }
 
@@ -538,7 +550,9 @@ void RGBController_SkyloongGK68HEPro::SetupZones()
 
 /*---------------------------------------------------------*\
 | The front light strip has no per-LED addressing, so it    |
-| mirrors the key color while Nexus drives the keys.        |
+| mirrors the key color while Nexus drives the keys. A      |
+| worker sends the latest color at a capped rate, so the    |
+| final color always lands once changes stop.               |
 \*---------------------------------------------------------*/
 void RGBController_SkyloongGK68HEPro::UpdateSideLight(RGBColor side_color)
 {
@@ -547,19 +561,74 @@ void RGBController_SkyloongGK68HEPro::UpdateSideLight(RGBColor side_color)
         return;
     }
 
-    auto     now        = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> lock(side_light_mutex);
 
-    if(side_light_valid
-    && (side_color == side_light_sent || now - side_light_time < std::chrono::milliseconds(1000)))
+    if(!side_light_running)
     {
-        return;
+        side_light_running = true;
+        side_light_thread  = std::thread(&RGBController_SkyloongGK68HEPro::SideLightThread, this);
     }
 
-    controller->SetSideLight(RGBGetRValue(side_color), RGBGetGValue(side_color), RGBGetBValue(side_color));
+    if(!side_light_dirty || side_light_pending != side_color)
+    {
+        side_light_pending = side_color;
+        side_light_dirty   = true;
+        side_light_cv.notify_all();
+    }
+}
 
-    side_light_sent  = side_color;
-    side_light_valid = true;
-    side_light_time  = now;
+void RGBController_SkyloongGK68HEPro::SideLightThread()
+{
+    const std::chrono::milliseconds min_interval(100);
+    const std::chrono::milliseconds max_backoff(2000);
+
+    std::chrono::milliseconds interval  = min_interval;
+    bool                      have_sent = false;
+    RGBColor                  last_sent = 0;
+
+    std::unique_lock<std::mutex> lock(side_light_mutex);
+
+    while(true)
+    {
+        side_light_cv.wait(lock, [this]{ return(side_light_dirty || !side_light_running); });
+
+        if(!side_light_running)
+        {
+            break;
+        }
+
+        RGBColor color   = side_light_pending;
+        side_light_dirty = false;
+
+        if(have_sent && color == last_sent)
+        {
+            continue;
+        }
+
+        lock.unlock();
+
+        bool ok = controller->SetSideLight(RGBGetRValue(color), RGBGetGValue(color), RGBGetBValue(color));
+
+        if(ok)
+        {
+            last_sent = color;
+            have_sent = true;
+            interval  = min_interval;
+        }
+        else
+        {
+            interval = std::min(interval * 2, max_backoff);
+        }
+
+        lock.lock();
+
+        if(!ok)
+        {
+            side_light_dirty = true;
+        }
+
+        side_light_cv.wait_for(lock, interval, [this]{ return(!side_light_running); });
+    }
 }
 
 void RGBController_SkyloongGK68HEPro::DeviceUpdateLEDs()

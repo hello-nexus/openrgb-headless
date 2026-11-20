@@ -12,6 +12,9 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include "RGBController.h"
 #include "RoyuanKeyboardController.h"
 
@@ -58,9 +61,14 @@ private:
 
     unsigned char flashed_colors[ROYUAN_SKYLOONG_GK68HE_PRO_USERPIC_SLOTS * 3];
     bool          layer_flashed = false;
-    RGBColor      side_light_sent = 0;
-    bool          side_light_valid = false;
-    std::chrono::steady_clock::time_point side_light_time;
+    void SideLightThread();
+
+    std::thread             side_light_thread;
+    std::mutex              side_light_mutex;
+    std::condition_variable side_light_cv;
+    RGBColor                side_light_pending = 0;
+    bool                    side_light_dirty   = false;
+    bool                    side_light_running = false;
 
     std::vector<unsigned char> mode_options;
 };
