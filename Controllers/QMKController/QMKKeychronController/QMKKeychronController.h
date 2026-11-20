@@ -13,6 +13,8 @@
 #pragma once
 
 #include <string>
+#include <utility>
+#include <vector>
 #include <hidapi.h>
 #include "QMKCommon.h"
 #include "RGBController.h"
@@ -176,6 +178,26 @@ private:
     unsigned short                          wireless_device_pid;
     unsigned short                          wireless_device_vid;
 
+    unsigned short                          saved_mode;
+    unsigned char                           saved_speed;
+    unsigned char                           saved_hue;
+    unsigned char                           saved_sat;
+    unsigned char                           saved_val;
+    bool                                    resend_armed;
+    bool                                    resend_done;
+    bool                                    resend_active;
+    long long                               resend_due_ms;
+    int                                     probe_frames_left;
+    long long                               probe_recheck_due_ms;
+    unsigned int                            probe_failure_logs;
+    std::vector<std::pair<char, unsigned short>> probe_keys;
+
+    void                                    ApplyMode(unsigned short mode, unsigned char speed, unsigned char hue, unsigned char sat, unsigned char val);
+    void                                    ProbeReadState(const char* when);
+    void                                    ProbeLogFailure(const char* what, unsigned char cmd, int subcmd);
+    int                                     CmdGetBrightness();
+    int                                     CmdGetPerKeyRGBType(unsigned char* reply);
+
     unsigned short                          CmdGetKeycode(unsigned char layer, unsigned char row, unsigned char col);
     std::string                             CmdGetKeychronFirmwareVersion();
     void                                    CmdGetKeychronProtocolVersion(unsigned char* kc_protocol_version);
@@ -189,7 +211,7 @@ private:
     std::string                             CmdGetWirelessKeyboardFirmwareVersion();
     void                                    CmdSaveMode();
     void                                    CmdSaveRGBMatrix();
-    void                                    CmdSendLEDs(unsigned char start_index, unsigned char number_leds, RGBColor* color_data);
+    int                                     CmdSendLEDs(unsigned char start_index, unsigned char number_leds, RGBColor* color_data, unsigned char* reply);
     bool                                    CmdSetBrightness(unsigned char brightness);
     void                                    CmdSetColorHS(unsigned char h, unsigned char s);
     void                                    CmdSetPerKeyRGBType(unsigned char type);
