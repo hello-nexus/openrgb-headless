@@ -26,6 +26,9 @@
 #define KEYCHRON_PROBE_FRAMES                       3
 #define KEYCHRON_PROBE_RECHECK_MS                   3000
 #define KEYCHRON_PROBE_MAX_FAILURE_LOGS             40
+#define KEYCHRON_PROBE_MAX_COMMAND_FAILURE_LOGS     10
+#define KEYCHRON_PROBE_MAX_LINES                    30
+#define KEYCHRON_PROBE_MAX_STATE_READS              6
 #define KEYCHRON_RESEND_DELAY_MS                    5000
 
 using namespace std::chrono_literals;
@@ -70,6 +73,13 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     probe_frames_left           = 0;
     probe_recheck_due_ms        = 0;
     probe_failure_logs          = 0;
+    probe_command_failure_logs  = 0;
+    probe_line_count            = 0;
+    probe_state_reads           = 0;
+    probe_context               = false;
+    probe_type_disabled         = false;
+    probe_recheck_armed         = false;
+    suppress_reply_warning      = false;
 
     /*-----------------------------------------------------*\
     | Read product string                                   |
@@ -124,7 +134,9 @@ QMKKeychronController::QMKKeychronController(hid_device* dev_handle, const char 
     | supports wireless RGB control, probe the attached     |
     | keyboard's information                                |
     \*-----------------------------------------------------*/
+    probe_context = true;
     CmdGetWirelessDeviceInfo(&wireless_device_vid, &wireless_device_pid);
+    probe_context = false;
 
     if(wireless_device_vid != 0 && wireless_device_pid != 0)
     {
@@ -384,7 +396,7 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
     if(direct_mode && (probe_recheck_due_ms != 0) && (KeychronNowMs() >= probe_recheck_due_ms))
     {
         probe_recheck_due_ms = 0;
-        ProbeReadState("recheck 3s after first frame");
+        ProbeReadState("recheck 3s after first sent frame");
     }
 
     /*-----------------------------------------------------*\
@@ -429,7 +441,11 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
     {
         if(probing)
         {
-            LOG_WARNING("%s frame skipped: peak brightness 0 (brightness set result %d)", KEYCHRON_PROBE_PREFIX, brightness_result);
+            if(ProbeLineBudget())
+            {
+                LOG_WARNING("%s frame skipped: peak brightness 0 (brightness set result %d)", KEYCHRON_PROBE_PREFIX, brightness_result);
+            }
+
             probe_frames_left--;
         }
 
@@ -461,6 +477,11 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
         if(probing && (reply_len + 16 < sizeof(reply_text)))
         {
             reply_len += snprintf(&reply_text[reply_len], sizeof(reply_text) - reply_len, " [%d:%02X%02X%02X%02X]", result, reply[0], reply[1], reply[2], reply[3]);
+
+            if(reply_len >= sizeof(reply_text))
+            {
+                reply_len = sizeof(reply_text) - 1;
+            }
         }
 
         led_start_index += number_packet_leds;
@@ -500,15 +521,24 @@ void QMKKeychronController::SendLEDs(unsigned short number_leds, RGBColor* color
 
                 key_len += snprintf(&key_text[key_len], sizeof(key_text) - key_len, " %c(led %u)=h%u s%u v%u", probe_keys[key].first, (unsigned int)led_idx,
                                     (unsigned int)((float)hsv_color.hue * (256.0f / 360.0f)), (unsigned int)hsv_color.saturation, (unsigned int)hsv_color.value);
+
+                if(key_len >= sizeof(key_text))
+                {
+                    key_len = sizeof(key_text) - 1;
+                }
             }
         }
 
-        LOG_WARNING("%s frame (%d left): leds=%u peak=%u brightness set result %d, packets %u acked %u of %u;%s; replies [ret:b0b1b2b3]%s",
-                    KEYCHRON_PROBE_PREFIX, probe_frames_left, (unsigned int)number_leds, (unsigned int)frame_brightness, brightness_result,
-                    packets_sent, packets_acked, packets_sent, key_text, reply_text);
-
-        if((probe_frames_left == KEYCHRON_PROBE_FRAMES) && (probe_recheck_due_ms == 0))
+        if(ProbeLineBudget())
         {
+            LOG_WARNING("%s frame (%d left): leds=%u peak=%u brightness set result %d, packets %u acked %u of %u;%s; replies [ret:b0b1b2b3]%s",
+                        KEYCHRON_PROBE_PREFIX, probe_frames_left, (unsigned int)number_leds, (unsigned int)frame_brightness, brightness_result,
+                        packets_sent, packets_acked, packets_sent, key_text, reply_text);
+        }
+
+        if(!probe_recheck_armed)
+        {
+            probe_recheck_armed  = true;
             probe_recheck_due_ms = KeychronNowMs() + KEYCHRON_PROBE_RECHECK_MS;
         }
 
@@ -545,10 +575,14 @@ void QMKKeychronController::ApplyMode(unsigned short mode, unsigned char speed, 
     direct_mode           = (mode == 0xFFFF);
     probe_frames_left     = KEYCHRON_PROBE_FRAMES;
     probe_recheck_due_ms  = 0;
+    probe_recheck_armed   = false;
 
-    LOG_WARNING("%s SetMode enter: mode %u speed %u hue %u sat %u val %u, cached per-key effect %d, resend %s", KEYCHRON_PROBE_PREFIX,
-                (unsigned int)mode, (unsigned int)speed, (unsigned int)hue, (unsigned int)sat, (unsigned int)val, per_key_effect,
-                resend_active ? "pass" : "initial");
+    if((mode == 0xFFFF) && ProbeLineBudget())
+    {
+        LOG_WARNING("%s SetMode enter: mode %u speed %u hue %u sat %u val %u, cached per-key effect %d, resend %s", KEYCHRON_PROBE_PREFIX,
+                    (unsigned int)mode, (unsigned int)speed, (unsigned int)hue, (unsigned int)sat, (unsigned int)val, per_key_effect,
+                    resend_active ? "pass" : "initial");
+    }
 
     if(mode == 0xFFFF)
     {
@@ -565,16 +599,21 @@ void QMKKeychronController::ApplyMode(unsigned short mode, unsigned char speed, 
         | Saving only after a brightness write that landed  |
         | keeps the effect out of EEPROM.                   |
         \*-------------------------------------------------*/
+        /*-------------------------------------------------*\
+        | The resend pass changes RAM state only: the effect|
+        | is already the per-key one, and a save could write|
+        | it to EEPROM                                      |
+        \*-------------------------------------------------*/
         bool save_one = CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
 
-        if(save_one)
+        if(save_one && !resend_active)
         {
             CmdSaveRGBMatrix();
         }
 
         bool save_two = CmdSetBrightness(KEYCHRON_QHE_MAX_BRIGHTNESS);
 
-        if(save_two)
+        if(save_two && !resend_active)
         {
             CmdSaveRGBMatrix();
         }
@@ -584,8 +623,11 @@ void QMKKeychronController::ApplyMode(unsigned short mode, unsigned char speed, 
         CmdSetRGBMatrixMode(effect);
         CmdSetPerKeyRGBType(KEYCHRON_PER_KEY_RGB_SOLID);
 
-        LOG_WARNING("%s SetMode direct: brightness set before save 1 %s, before save 2 %s, per-key effect id %u", KEYCHRON_PROBE_PREFIX,
-                    save_one ? "true" : "false", save_two ? "true" : "false", (unsigned int)effect);
+        if(ProbeLineBudget())
+        {
+            LOG_WARNING("%s SetMode direct: brightness set before save 1 %s, before save 2 %s (saves %s), per-key effect id %u", KEYCHRON_PROBE_PREFIX,
+                        save_one ? "true" : "false", save_two ? "true" : "false", resend_active ? "skipped" : "done", (unsigned int)effect);
+        }
     }
     else
     {
@@ -595,7 +637,10 @@ void QMKKeychronController::ApplyMode(unsigned short mode, unsigned char speed, 
         CmdSetSpeed(speed);
     }
 
-    ProbeReadState("SetMode exit");
+    if(mode == 0xFFFF)
+    {
+        ProbeReadState("SetMode exit");
+    }
 }
 
 unsigned char QMKKeychronController::GetPerKeyEffect()
@@ -616,13 +661,18 @@ unsigned char QMKKeychronController::GetPerKeyEffect()
         | the prior mode, or a prior read that failed, is   |
         | probed again from a known mode.                   |
         \*-------------------------------------------------*/
+        probe_context = true;
+
         int prior_effect = CmdGetRGBMatrixMode();
 
         CmdSetRGBMatrixMode(0xFF);
 
         int last_effect = CmdGetRGBMatrixMode();
 
-        LOG_WARNING("%s effect probe: prior effect %d, read-back after 0xFF %d", KEYCHRON_PROBE_PREFIX, prior_effect, last_effect);
+        if(ProbeLineBudget())
+        {
+            LOG_WARNING("%s effect probe: prior effect %d, read-back after 0xFF %d", KEYCHRON_PROBE_PREFIX, prior_effect, last_effect);
+        }
 
         if((prior_effect < 0) || (last_effect == prior_effect))
         {
@@ -631,11 +681,19 @@ unsigned char QMKKeychronController::GetPerKeyEffect()
 
             last_effect = CmdGetRGBMatrixMode();
 
-            LOG_WARNING("%s effect probe retry from mode 1: read-back %d", KEYCHRON_PROBE_PREFIX, last_effect);
+            if(ProbeLineBudget())
+            {
+                LOG_WARNING("%s effect probe retry from mode 1: read-back %d", KEYCHRON_PROBE_PREFIX, last_effect);
+            }
 
             if(last_effect == 1)
             {
-                LOG_WARNING("%s effect probe: firmware ignored probe, using fallback id %d", KEYCHRON_PROBE_PREFIX, KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+                if(ProbeLineBudget())
+                {
+                    LOG_WARNING("%s effect probe: firmware ignored probe, using fallback id %d", KEYCHRON_PROBE_PREFIX, KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+                }
+
+                probe_context = false;
 
                 return(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
             }
@@ -644,12 +702,21 @@ unsigned char QMKKeychronController::GetPerKeyEffect()
         if((last_effect > 2) && (last_effect < 0xFF))
         {
             per_key_effect = last_effect - 1;
+            probe_context  = false;
 
-            LOG_WARNING("%s effect probe: chosen per-key effect id %d (cached)", KEYCHRON_PROBE_PREFIX, per_key_effect);
+            if(ProbeLineBudget())
+            {
+                LOG_WARNING("%s effect probe: chosen per-key effect id %d (cached)", KEYCHRON_PROBE_PREFIX, per_key_effect);
+            }
         }
         else
         {
-            LOG_WARNING("%s effect probe: read-back %d unusable, using fallback id %d", KEYCHRON_PROBE_PREFIX, last_effect, KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+            if(ProbeLineBudget())
+            {
+                LOG_WARNING("%s effect probe: read-back %d unusable, using fallback id %d", KEYCHRON_PROBE_PREFIX, last_effect, KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
+            }
+
+            probe_context = false;
 
             return(KEYCHRON_QHE_PER_KEY_RGB_EFFECT);
         }
@@ -664,6 +731,11 @@ void QMKKeychronController::LogReplyWarning(const char* format, ...)
     | Log the first occurrence, then at most once per       |
     | warning interval with the number of warnings held back|
     \*-----------------------------------------------------*/
+    if(suppress_reply_warning)
+    {
+        return;
+    }
+
     long long now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 
     if((last_warning_ms != 0) && ((now_ms - last_warning_ms) < KEYCHRON_QHE_WARNING_INTERVAL_MS))
@@ -696,22 +768,86 @@ void QMKKeychronController::ProbeReadState(const char* when)
 {
     unsigned char type_reply[4] = { 0 };
 
+    if(probe_state_reads >= KEYCHRON_PROBE_MAX_STATE_READS)
+    {
+        return;
+    }
+
+    probe_state_reads++;
+
+    probe_context          = true;
+    suppress_reply_warning = true;
+
     int effect_now     = CmdGetRGBMatrixMode();
     int brightness_now = CmdGetBrightness();
-    int type_result    = CmdGetPerKeyRGBType(type_reply);
+    int type_result    = -3;
+
+    if(!probe_type_disabled)
+    {
+        type_result = CmdGetPerKeyRGBType(type_reply);
+
+        if(type_result < 0)
+        {
+            /*---------------------------------------------*\
+            | Unhandled or timed out: do not ask again      |
+            \*---------------------------------------------*/
+            probe_type_disabled = true;
+        }
+    }
+
+    probe_context          = false;
+    suppress_reply_warning = false;
+
+    if(!ProbeLineBudget())
+    {
+        return;
+    }
 
     LOG_WARNING("%s state (%s): effect %d, brightness %d, per-key type reply %d [%02X %02X %02X %02X]", KEYCHRON_PROBE_PREFIX, when,
                 effect_now, brightness_now, type_result, type_reply[0], type_reply[1], type_reply[2], type_reply[3]);
 }
 
-void QMKKeychronController::ProbeLogFailure(const char* what, unsigned char cmd, int subcmd)
+bool QMKKeychronController::ProbeLineBudget()
 {
-    if(probe_failure_logs >= KEYCHRON_PROBE_MAX_FAILURE_LOGS)
+    if(resend_active)
     {
-        return;
+        return(true);
     }
 
-    probe_failure_logs++;
+    if(probe_line_count >= KEYCHRON_PROBE_MAX_LINES)
+    {
+        return(false);
+    }
+
+    probe_line_count++;
+
+    return(true);
+}
+
+void QMKKeychronController::ProbeLogFailure(const char* what, unsigned char cmd, int subcmd)
+{
+    /*-----------------------------------------------------*\
+    | Failures of probe-only commands have their own budget |
+    | so they cannot use up the one for real traffic        |
+    \*-----------------------------------------------------*/
+    if(probe_context)
+    {
+        if(probe_command_failure_logs >= KEYCHRON_PROBE_MAX_COMMAND_FAILURE_LOGS)
+        {
+            return;
+        }
+
+        probe_command_failure_logs++;
+    }
+    else
+    {
+        if(probe_failure_logs >= KEYCHRON_PROBE_MAX_FAILURE_LOGS)
+        {
+            return;
+        }
+
+        probe_failure_logs++;
+    }
 
     if(subcmd >= 0)
     {

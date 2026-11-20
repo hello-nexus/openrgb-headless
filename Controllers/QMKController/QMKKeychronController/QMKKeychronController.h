@@ -190,10 +190,18 @@ private:
     int                                     probe_frames_left;
     long long                               probe_recheck_due_ms;
     unsigned int                            probe_failure_logs;
+    unsigned int                            probe_command_failure_logs;
+    unsigned int                            probe_line_count;
+    unsigned int                            probe_state_reads;
+    bool                                    probe_context;
+    bool                                    probe_type_disabled;
+    bool                                    probe_recheck_armed;
+    bool                                    suppress_reply_warning;
     std::vector<std::pair<char, unsigned short>> probe_keys;
 
     void                                    ApplyMode(unsigned short mode, unsigned char speed, unsigned char hue, unsigned char sat, unsigned char val);
     void                                    ProbeReadState(const char* when);
+    bool                                    ProbeLineBudget();
     void                                    ProbeLogFailure(const char* what, unsigned char cmd, int subcmd);
     int                                     CmdGetBrightness();
     int                                     CmdGetPerKeyRGBType(unsigned char* reply);
